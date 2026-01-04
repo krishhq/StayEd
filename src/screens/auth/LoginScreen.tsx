@@ -85,6 +85,8 @@ export default function LoginScreen({ navigation }: any) {
                 <Button title="Simulate Resident Login" onPress={() => simulateLogin('resident')} color="green" />
                 <View style={{ height: 10 }} />
                 <Button title="Simulate Admin Login" onPress={() => simulateLogin('admin')} color="orange" />
+                <View style={{ height: 10 }} />
+                <Button title="Simulate Guardian Login" onPress={() => simulateLogin('guardian')} color="purple" />
             </View>
         </View>
     );
