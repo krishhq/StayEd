@@ -11,6 +11,7 @@ import PendingScreen from '../screens/auth/PendingScreen';
 // Resident Screens
 import ResidentDashboard from '../screens/resident/ResidentDashboard';
 import ResidentForumScreen from '../screens/resident/ResidentForumScreen';
+import MessMenuScreen from '../screens/resident/MessMenuScreen';
 import AttendanceScreen from '../screens/resident/AttendanceScreen';
 import ComplaintScreen from '../screens/resident/ComplaintScreen';
 import LeaveScreen from '../screens/resident/LeaveScreen';
@@ -51,6 +52,7 @@ export default function RootNavigator() {
                             <Stack.Screen name="Attendance" component={AttendanceScreen} />
                             <Stack.Screen name="Complaints" component={ComplaintScreen} />
                             <Stack.Screen name="Leave" component={LeaveScreen} />
+                            <Stack.Screen name="Mess" component={MessMenuScreen} />
                         </>
                     ) : userRole === 'admin' ? (
                         <>

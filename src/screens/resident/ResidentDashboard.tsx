@@ -34,9 +34,9 @@ export default function ResidentDashboard({ navigation }: any) {
                     <Text style={styles.cardText}>Apply Leave</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={[styles.card, styles.disabledCard]} onPress={() => console.log('Mess Menu')}>
+                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Mess')}>
                     <Text style={styles.cardIcon}>🍛</Text>
-                    <Text style={styles.cardText}>Mess Menu (Coming Soon)</Text>
+                    <Text style={styles.cardText}>Mess Menu</Text>
                 </TouchableOpacity>
             </View>
 
