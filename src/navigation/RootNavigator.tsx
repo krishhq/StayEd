@@ -6,10 +6,11 @@ import { View, ActivityIndicator } from 'react-native';
 
 // Auth Screen
 import LoginScreen from '../screens/auth/LoginScreen';
+import PendingScreen from '../screens/auth/PendingScreen';
 
 // Resident Screens
 import ResidentDashboard from '../screens/resident/ResidentDashboard';
-import ForumScreen from '../screens/resident/ForumScreen';
+import ResidentForumScreen from '../screens/resident/ResidentForumScreen';
 
 // Admin Screens
 import AdminDashboard from '../screens/admin/AdminDashboard';
@@ -39,7 +40,7 @@ export default function RootNavigator() {
                     userRole === 'resident' ? (
                         <>
                             <Stack.Screen name="ResidentDashboard" component={ResidentDashboard} />
-                            <Stack.Screen name="Forum" component={ForumScreen} />
+                            <Stack.Screen name="Forum" component={ResidentForumScreen} />
                         </>
                     ) : userRole === 'admin' ? (
                         <>
@@ -52,7 +53,7 @@ export default function RootNavigator() {
                         </>
                     ) : (
                         // Fallback for user with no role (or new user) - effectively "Pending Approval" or similar
-                        <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Pending Access' }} />
+                        <Stack.Screen name="Pending" component={PendingScreen} options={{ title: 'Pending Access' }} />
                     )
                 ) : (
                     // Auth Stack

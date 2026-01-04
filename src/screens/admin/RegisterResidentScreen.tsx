@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
 export default function RegisterResidentScreen() {
+    // Resident Registration Screen
     return (
         <View style={styles.container}>
             <Text style={styles.title}>Register New Resident</Text>

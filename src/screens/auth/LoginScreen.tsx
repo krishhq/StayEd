@@ -1,58 +1,54 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
-import { signInWithPhoneNumber, RecaptchaVerifier } from 'firebase/auth';
+import { signInWithPhoneNumber, RecaptchaVerifier, PhoneAuthProvider, signInWithCredential } from 'firebase/auth';
 import { auth } from '../../config/firebaseConfig';
 import { FirebaseRecaptchaVerifierModal, FirebaseRecaptchaBanner } from 'expo-firebase-recaptcha';
 
 // Note: For Expo Go, we need the Firebase Recaptcha Verifier Modal
 // Adding strictly necessary imports and setup
 
+import { useAuth } from '../../context/AuthContext';
+
 export default function LoginScreen({ navigation }: any) {
+    const { simulateLogin } = useAuth();
     const [phoneNumber, setPhoneNumber] = useState('');
     const [verificationId, setVerificationId] = useState('');
     const [verificationCode, setVerificationCode] = useState('');
-    const recaptchaVerifier = React.useRef(null);
-
-    // Simulation Mode state (to bypass Real Auth for demo if needed)
-    // const [isSimulated, setIsSimulated] = useState(false);
-
-    // TODO: Add your firebaseConfig here implicitly or pass it to Recaptcha
+    const recaptchaVerifier = React.useRef<any>(null);
 
     const sendVerification = async () => {
         try {
-            // Real flow
-            // const phoneProvider = new PhoneAuthProvider(auth);
-            // const verificationId = await phoneProvider.verifyPhoneNumber(
-            //   phoneNumber,
-            //   recaptchaVerifier.current
-            // );
-            // setVerificationId(verificationId);
-            Alert.alert('Verification Sent', 'Demo: OTP Sent (Simulated)');
-            setVerificationId('demo-verification-id'); // Simulating
+            const phoneProvider = new PhoneAuthProvider(auth);
+            // @ts-ignore
+            const verificationId = await phoneProvider.verifyPhoneNumber(
+                phoneNumber,
+                recaptchaVerifier.current
+            );
+            setVerificationId(verificationId);
+            Alert.alert('Verification Sent', 'Please check your SMS for the code.');
         } catch (err: any) {
+            console.error(err);
             Alert.alert('Error', err.message);
         }
     };
 
     const confirmCode = async () => {
         try {
-            // Real flow
-            // const credential = PhoneAuthProvider.credential(
-            //   verificationId,
-            //   verificationCode
-            // );
-            // await signInWithCredential(auth, credential);
-            Alert.alert('Success', 'Login Succeeded (Simulated)');
-            // In a real app, the onAuthStateChanged in AuthContext would pick this up.
-            // For this init, we might manually trigger a state update or just show we can't fully login without real keys.
+            const credential = PhoneAuthProvider.credential(
+                verificationId,
+                verificationCode
+            );
+            await signInWithCredential(auth, credential);
+            // Success is handled by AuthContext onAuthStateChanged
         } catch (err: any) {
+            console.error(err);
             Alert.alert('Error', err.message);
         }
     };
 
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Welcome Back</Text>
+            <Text style={styles.title}>Hostel Login</Text>
             <View style={styles.inputContainer}>
                 <TextInput
                     placeholder="+91 9876543210"
@@ -77,11 +73,19 @@ export default function LoginScreen({ navigation }: any) {
                 </View>
             ) : null}
 
-            {/* Recaptcha Modal specific to Expo */}
-            {/* <FirebaseRecaptchaVerifierModal
-        ref={recaptchaVerifier}
-        firebaseConfig={auth.app.options}
-      /> */}
+            <FirebaseRecaptchaVerifierModal
+                ref={recaptchaVerifier}
+                firebaseConfig={auth.app.options}
+            // attemptInvisibleVerification={true} // Optional
+            />
+
+            {/* DEV ONLY: Debug Buttons */}
+            <View style={{ marginTop: 40, borderTopWidth: 1, paddingTop: 20 }}>
+                <Text style={{ textAlign: 'center', marginBottom: 10, color: 'gray' }}>Development Mode</Text>
+                <Button title="Simulate Resident Login" onPress={() => simulateLogin('resident')} color="green" />
+                <View style={{ height: 10 }} />
+                <Button title="Simulate Admin Login" onPress={() => simulateLogin('admin')} color="orange" />
+            </View>
         </View>
     );
 }

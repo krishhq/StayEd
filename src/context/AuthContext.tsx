@@ -12,6 +12,7 @@ interface AuthContextType {
     isLoading: boolean;
     signOut: () => Promise<void>;
     // We will handle login in the LoginScreen mainly, but could expose methods here if needed
+    simulateLogin: (role: UserRole) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -55,10 +56,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const signOut = async () => {
         await firebaseSignOut(auth);
         setUserRole(null);
+        setUser(null);
+    };
+
+    // DEV ONLY: Simulate login for testing without Firebase
+    const simulateLogin = (role: UserRole) => {
+        setUser({ uid: 'dev-user-id', email: 'dev@test.com' } as User);
+        setUserRole(role);
+        setIsLoading(false);
     };
 
     return (
-        <AuthContext.Provider value={{ user, userRole, isLoading, signOut }}>
+        <AuthContext.Provider value={{ user, userRole, isLoading, signOut, simulateLogin }}>
             {children}
         </AuthContext.Provider>
     );

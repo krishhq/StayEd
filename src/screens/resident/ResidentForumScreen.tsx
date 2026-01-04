@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-export default function ForumScreen() {
+export default function ResidentForumScreen() {
     return (
         <View style={styles.container}>
             <Text style={styles.title}>Community Forum</Text>
