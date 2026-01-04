@@ -1,49 +1,71 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function ResidentDashboard({ navigation }: any) {
-    const { signOut, user } = useAuth();
+    const { signOut } = useAuth();
+    const { colors, theme, toggleTheme } = useTheme();
+
+    const dynamicStyles = {
+        container: { backgroundColor: colors.background },
+        text: { color: colors.text },
+        subText: { color: colors.subText },
+        card: { backgroundColor: colors.card },
+        cardText: { color: colors.text },
+    };
 
     return (
-        <View style={styles.container}>
+        <ScrollView style={[styles.container, dynamicStyles.container]}>
             {/* Header Section */}
             <View style={styles.header}>
-                <Text style={styles.welcome}>Welcome Resident!</Text>
-                <Text style={styles.subtext}>What would you like to do today?</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View>
+                        <Text style={[styles.welcome, dynamicStyles.text]}>Welcome Resident!</Text>
+                        <Text style={[styles.subtext, dynamicStyles.subText]}>What would you like to do today?</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                        <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
+                            <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.profileBtn}>
+                            <Text style={{ fontSize: 24 }}>👤</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
             </View>
 
             <View style={styles.grid}>
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Attendance')}>
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Attendance')}>
                     <Text style={styles.cardIcon}>📷</Text>
-                    <Text style={styles.cardText}>Log Entry/Exit</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Log Entry/Exit</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Complaints')}>
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Complaints')}>
                     <Text style={styles.cardIcon}>🔧</Text>
-                    <Text style={styles.cardText}>Raise Complaint</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Raise Complaint</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Forum')}>
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Forum')}>
                     <Text style={styles.cardIcon}>💬</Text>
-                    <Text style={styles.cardText}>Community Forum</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Community Forum</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Leave')}>
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Leave')}>
                     <Text style={styles.cardIcon}>📅</Text>
-                    <Text style={styles.cardText}>Apply Leave</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Apply Leave</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Mess')}>
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Mess')}>
                     <Text style={styles.cardIcon}>🍛</Text>
-                    <Text style={styles.cardText}>Mess Menu</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Mess Menu</Text>
                 </TouchableOpacity>
             </View>
 
             <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
                 <Text style={styles.logoutText}>Logout</Text>
             </TouchableOpacity>
-        </View>
+        </ScrollView>
     );
 }
 
@@ -51,7 +73,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         padding: 20,
-        backgroundColor: '#f8f9fa',
     },
     header: {
         marginTop: 40,
@@ -60,12 +81,21 @@ const styles = StyleSheet.create({
     welcome: {
         fontSize: 28,
         fontWeight: 'bold',
-        color: '#333',
     },
     subtext: {
         fontSize: 16,
-        color: '#666',
         marginTop: 5,
+    },
+    profileBtn: {
+        backgroundColor: 'white',
+        padding: 10,
+        borderRadius: 25,
+        elevation: 2,
+    },
+    iconBtn: {
+        backgroundColor: 'rgba(150,150,150,0.2)',
+        padding: 10,
+        borderRadius: 25,
     },
     grid: {
         flexDirection: 'row',
@@ -74,7 +104,6 @@ const styles = StyleSheet.create({
     },
     card: {
         width: '48%',
-        backgroundColor: 'white',
         padding: 20,
         borderRadius: 15,
         marginBottom: 15,
@@ -87,10 +116,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         height: 130,
     },
-    disabledCard: {
-        opacity: 0.6,
-        backgroundColor: '#f1f1f1'
-    },
     cardIcon: {
         fontSize: 32,
         marginBottom: 10,
@@ -98,7 +123,6 @@ const styles = StyleSheet.create({
     cardText: {
         fontWeight: '600',
         textAlign: 'center',
-        color: '#333',
     },
     logoutBtn: {
         marginTop: 'auto',

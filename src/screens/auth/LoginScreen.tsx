@@ -1,93 +1,150 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
-import { signInWithPhoneNumber, RecaptchaVerifier, PhoneAuthProvider, signInWithCredential } from 'firebase/auth';
-import { auth } from '../../config/firebaseConfig';
+import React, { useState, useRef } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { FirebaseRecaptchaVerifierModal, FirebaseRecaptchaBanner } from 'expo-firebase-recaptcha';
-
-// Note: For Expo Go, we need the Firebase Recaptcha Verifier Modal
-// Adding strictly necessary imports and setup
-
+import app from '../../config/firebaseConfig';
+import { getAuth, PhoneAuthProvider, signInWithCredential } from 'firebase/auth';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function LoginScreen({ navigation }: any) {
-    const { simulateLogin } = useAuth();
+    const { colors } = useTheme();
     const [phoneNumber, setPhoneNumber] = useState('');
-    const [verificationId, setVerificationId] = useState('');
     const [verificationCode, setVerificationCode] = useState('');
-    const recaptchaVerifier = React.useRef<any>(null);
+    const [verificationId, setVerificationId] = useState<string | null>(null);
+    const recaptchaVerifier = useRef(null);
+    const [loading, setLoading] = useState(false);
+    const auth = getAuth(app);
+
+    // Dynamic Styles
+    const dynamicStyles = {
+        container: { backgroundColor: colors.background },
+        title: { color: colors.text },
+        subtitle: { color: colors.subText },
+        input: { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
+        card: { backgroundColor: colors.card },
+    };
 
     const sendVerification = async () => {
+        if (!phoneNumber) {
+            Alert.alert("Error", "Please enter a valid phone number");
+            return;
+        }
+        setLoading(true);
         try {
             const phoneProvider = new PhoneAuthProvider(auth);
-            // @ts-ignore
             const verificationId = await phoneProvider.verifyPhoneNumber(
                 phoneNumber,
-                recaptchaVerifier.current
+                recaptchaVerifier.current!
             );
             setVerificationId(verificationId);
-            Alert.alert('Verification Sent', 'Please check your SMS for the code.');
-        } catch (err: any) {
-            console.error(err);
-            Alert.alert('Error', err.message);
+            Alert.alert("Success", "Verification code has been sent to your phone.");
+        } catch (error: any) {
+            Alert.alert("Error", error.message);
+        } finally {
+            setLoading(false);
         }
     };
 
     const confirmCode = async () => {
+        if (!verificationCode) {
+            Alert.alert("Error", "Please enter the verification code");
+            return;
+        }
+        setLoading(true);
         try {
             const credential = PhoneAuthProvider.credential(
-                verificationId,
+                verificationId!,
                 verificationCode
             );
             await signInWithCredential(auth, credential);
-            // Success is handled by AuthContext onAuthStateChanged
-        } catch (err: any) {
-            console.error(err);
-            Alert.alert('Error', err.message);
+            // AuthContext handles state change automatically
+        } catch (error: any) {
+            Alert.alert("Error", "Invalid Code");
+        } finally {
+            setLoading(false);
         }
     };
 
+    // Simulation Handlers
+    const { simulateLogin } = useAuth();
+
     return (
-        <View style={styles.container}>
-            <Text style={styles.title}>Hostel Login</Text>
-            <View style={styles.inputContainer}>
-                <TextInput
-                    placeholder="+91 9876543210"
-                    value={phoneNumber}
-                    onChangeText={setPhoneNumber}
-                    keyboardType="phone-pad"
-                    style={styles.input}
-                />
-                <Button title="Send OTP" onPress={sendVerification} />
-            </View>
-
-            {verificationId ? (
-                <View style={styles.inputContainer}>
-                    <TextInput
-                        placeholder="123456"
-                        value={verificationCode}
-                        onChangeText={setVerificationCode}
-                        keyboardType="number-pad"
-                        style={styles.input}
-                    />
-                    <Button title="Login" onPress={confirmCode} />
-                </View>
-            ) : null}
-
+        <View style={[styles.container, dynamicStyles.container]}>
             <FirebaseRecaptchaVerifierModal
                 ref={recaptchaVerifier}
-                firebaseConfig={auth.app.options}
-            // attemptInvisibleVerification={true} // Optional
+                firebaseConfig={app.options}
             />
 
-            {/* DEV ONLY: Debug Buttons */}
-            <View style={{ marginTop: 40, borderTopWidth: 1, paddingTop: 20 }}>
-                <Text style={{ textAlign: 'center', marginBottom: 10, color: 'gray' }}>Development Mode</Text>
-                <Button title="Simulate Resident Login" onPress={() => simulateLogin('resident')} color="green" />
-                <View style={{ height: 10 }} />
-                <Button title="Simulate Admin Login" onPress={() => simulateLogin('admin')} color="orange" />
-                <View style={{ height: 10 }} />
-                <Button title="Simulate Guardian Login" onPress={() => simulateLogin('guardian')} color="purple" />
+            <View style={styles.header}>
+                <Text style={[styles.title, dynamicStyles.title]}>Hostel StayEd</Text>
+                <Text style={[styles.subtitle, dynamicStyles.subtitle]}>Secure & Smart Living</Text>
             </View>
+
+            <View style={[styles.card, dynamicStyles.card]}>
+                {!verificationId ? (
+                    <>
+                        <Text style={[styles.label, { color: colors.text }]}>Phone Number</Text>
+                        <TextInput
+                            style={[styles.input, dynamicStyles.input]}
+                            placeholder="+91 9876543210"
+                            placeholderTextColor={colors.subText}
+                            keyboardType="phone-pad"
+                            autoComplete="tel"
+                            textContentType="telephoneNumber"
+                            onChangeText={setPhoneNumber}
+                        />
+                        <TouchableOpacity
+                            style={[styles.btn, loading && styles.btnDisabled]}
+                            onPress={sendVerification}
+                            disabled={loading}
+                        >
+                            {loading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Send OTP</Text>}
+                        </TouchableOpacity>
+                    </>
+                ) : (
+                    <>
+                        <Text style={[styles.label, { color: colors.text }]}>Enter OTP</Text>
+                        <TextInput
+                            style={[styles.input, dynamicStyles.input]}
+                            placeholder="123456"
+                            placeholderTextColor={colors.subText}
+                            keyboardType="number-pad"
+                            onChangeText={setVerificationCode}
+                        />
+                        <TouchableOpacity
+                            style={[styles.btn, loading && styles.btnDisabled]}
+                            onPress={confirmCode}
+                            disabled={loading}
+                        >
+                            {loading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Verify & Login</Text>}
+                        </TouchableOpacity>
+                    </>
+                )}
+            </View>
+
+            {/* Dev Only: Simulation Buttons */}
+            <View style={{ marginTop: 30 }}>
+                <Text style={{ textAlign: 'center', color: 'gray', marginBottom: 10 }}>--- Developer Simulation ---</Text>
+                <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center' }}>
+                    <TouchableOpacity onPress={() => simulateLogin('resident')} style={[styles.simBtn, { backgroundColor: '#4CAF50' }]}>
+                        <Text style={{ color: 'white' }}>Resident</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => simulateLogin('admin')} style={[styles.simBtn, { backgroundColor: '#2196F3' }]}>
+                        <Text style={{ color: 'white' }}>Admin</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => simulateLogin('guardian')} style={[styles.simBtn, { backgroundColor: '#FF9800' }]}>
+                        <Text style={{ color: 'white' }}>Guardian</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            {/* Register Hostel Button */}
+            <TouchableOpacity
+                style={styles.registerHostelBtn}
+                onPress={() => navigation.navigate('HostelRegistration')}
+            >
+                <Text style={styles.registerHostelText}>🏢 Register Your Hostel/PG</Text>
+            </TouchableOpacity>
         </View>
     );
 }
@@ -97,22 +154,68 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         padding: 20,
-        backgroundColor: '#fff',
+    },
+    header: {
+        alignItems: 'center',
+        marginBottom: 40,
     },
     title: {
-        fontSize: 24,
+        fontSize: 32,
         fontWeight: 'bold',
-        marginBottom: 20,
-        textAlign: 'center',
+        marginBottom: 5,
     },
-    inputContainer: {
-        marginBottom: 20,
+    subtitle: {
+        fontSize: 16,
+    },
+    card: {
+        padding: 25,
+        borderRadius: 15,
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    label: {
+        fontWeight: 'bold',
+        marginBottom: 5,
     },
     input: {
         borderWidth: 1,
-        borderColor: '#ccc',
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 20,
+        fontSize: 16,
+    },
+    btn: {
+        backgroundColor: '#007AFF',
+        padding: 15,
+        borderRadius: 10,
+        alignItems: 'center',
+    },
+    btnDisabled: {
+        opacity: 0.7,
+    },
+    btnText: {
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    simBtn: {
         padding: 10,
-        marginBottom: 10,
         borderRadius: 5,
-    }
+    },
+    registerHostelBtn: {
+        marginTop: 30,
+        backgroundColor: '#27ae60',
+        padding: 15,
+        borderRadius: 10,
+        alignItems: 'center',
+        elevation: 3,
+    },
+    registerHostelText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
 });

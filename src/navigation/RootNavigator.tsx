@@ -7,6 +7,7 @@ import { View, ActivityIndicator } from 'react-native';
 // Auth Screen
 import LoginScreen from '../screens/auth/LoginScreen';
 import PendingScreen from '../screens/auth/PendingScreen';
+import HostelRegistrationScreen from '../screens/auth/HostelRegistrationScreen';
 
 // Resident Screens
 import ResidentDashboard from '../screens/resident/ResidentDashboard';
@@ -14,7 +15,9 @@ import ResidentForumScreen from '../screens/resident/ResidentForumScreen';
 import MessMenuScreen from '../screens/resident/MessMenuScreen';
 import AttendanceScreen from '../screens/resident/AttendanceScreen';
 import ComplaintScreen from '../screens/resident/ComplaintScreen';
+
 import LeaveScreen from '../screens/resident/LeaveScreen';
+import ProfileScreen from '../screens/resident/ProfileScreen';
 
 // Admin Screens
 import AdminDashboard from '../screens/admin/AdminDashboard';
@@ -53,6 +56,7 @@ export default function RootNavigator() {
                             <Stack.Screen name="Complaints" component={ComplaintScreen} />
                             <Stack.Screen name="Leave" component={LeaveScreen} />
                             <Stack.Screen name="Mess" component={MessMenuScreen} />
+                            <Stack.Screen name="Profile" component={ProfileScreen} />
                         </>
                     ) : userRole === 'admin' ? (
                         <>
@@ -61,7 +65,6 @@ export default function RootNavigator() {
                             <Stack.Screen name="AllComplaints" component={AllComplaintsScreen} />
                             <Stack.Screen name="AttendanceLog" component={AttendanceLogScreen} />
                             <Stack.Screen name="AdminLeaves" component={AdminLeaveScreen} />
-                            <Stack.Screen name="Forum" component={ResidentForumScreen} />
                         </>
                     ) : userRole === 'guardian' ? (
                         <>
@@ -74,7 +77,10 @@ export default function RootNavigator() {
                     )
                 ) : (
                     // Auth Stack
-                    <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+                    <>
+                        <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+                        <Stack.Screen name="HostelRegistration" component={HostelRegistrationScreen} options={{ title: 'Register Hostel' }} />
+                    </>
                 )}
             </Stack.Navigator>
         </NavigationContainer>

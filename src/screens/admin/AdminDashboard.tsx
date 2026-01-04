@@ -1,14 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../config/firebaseConfig';
 import { collection, getCountFromServer, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 
 export default function AdminDashboard({ navigation }: any) {
     const { signOut } = useAuth();
+    const { colors, theme, toggleTheme } = useTheme();
     const [residentCount, setResidentCount] = useState<number | string>('-');
     const [complaintCount, setComplaintCount] = useState<number | string>('-');
     const [alerts, setAlerts] = useState<any[]>([]);
+
+    // Dynamic Styles
+    const dynamicStyles = {
+        container: { backgroundColor: colors.background },
+        text: { color: colors.text },
+        card: { backgroundColor: colors.card, borderColor: colors.border },
+        cardText: { color: colors.text },
+        subText: { color: colors.subText },
+    };
 
     useEffect(() => {
         // Fetch Basic Stats
@@ -26,13 +37,11 @@ export default function AdminDashboard({ navigation }: any) {
                     setComplaintCount(compSnap.data().count);
                 }
 
-                // Fetch Mess Alerts (Last 3)
                 const alertQ = query(collection(db, 'mess_alerts'), orderBy('createdAt', 'desc'), limit(3));
                 const alertSnap = await getDocs(alertQ);
                 const fetchedAlerts: any[] = [];
                 alertSnap.forEach(doc => fetchedAlerts.push({ id: doc.id, ...doc.data() }));
                 setAlerts(fetchedAlerts);
-
             } catch (e) {
                 console.log('Stats Error:', e);
                 setResidentCount(0);
@@ -44,22 +53,27 @@ export default function AdminDashboard({ navigation }: any) {
     }, []);
 
     return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <Text style={styles.title}>Admin Dashboard</Text>
+        <ScrollView contentContainerStyle={[styles.container, dynamicStyles.container]}>
+            <View style={styles.headerRow}>
+                <Text style={[styles.title, dynamicStyles.text]}>Admin Dashboard</Text>
+                <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
+                    <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
+                </TouchableOpacity>
+            </View>
 
             {/* Stats Row */}
             <View style={styles.statsContainer}>
-                <View style={styles.statCard}>
+                <View style={[styles.statCard, dynamicStyles.card]}>
                     <Text style={styles.statNumber}>{residentCount}</Text>
-                    <Text style={styles.statLabel}>Total Residents</Text>
+                    <Text style={[styles.statLabel, dynamicStyles.subText]}>Total Residents</Text>
                 </View>
-                <View style={styles.statCard}>
+                <View style={[styles.statCard, dynamicStyles.card]}>
                     <Text style={styles.statNumber}>{complaintCount}</Text>
-                    <Text style={styles.statLabel}>Total Complaints</Text>
+                    <Text style={[styles.statLabel, dynamicStyles.subText]}>Total Complaints</Text>
                 </View>
             </View>
 
-            {/* Mess Alerts Section */}
+            {/* Alerts */}
             {alerts.length > 0 && (
                 <View style={styles.alertSection}>
                     <Text style={styles.sectionHeader}>🚨 Urgent Alerts</Text>
@@ -72,27 +86,27 @@ export default function AdminDashboard({ navigation }: any) {
                 </View>
             )}
 
-            <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Manage & Monitor</Text>
+            <Text style={[styles.sectionTitle, dynamicStyles.text]}>Manage & Monitor</Text>
 
             <View style={styles.grid}>
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('RegisterResident')}>
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('RegisterResident')}>
                     <Text style={styles.icon}>👤</Text>
-                    <Text style={styles.cardText}>Register Resident</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Register Resident</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('AllComplaints')}>
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AllComplaints')}>
                     <Text style={styles.icon}>⚠️</Text>
-                    <Text style={styles.cardText}>View Complaints</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>View Complaints</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('AttendanceLog')}>
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AttendanceLog')}>
                     <Text style={styles.icon}>📋</Text>
-                    <Text style={styles.cardText}>Attendance Logs</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Attendance Logs</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('AdminLeaves')}>
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AdminLeaves')}>
                     <Text style={styles.icon}>✈️</Text>
-                    <Text style={styles.cardText}>View Leaves</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>View Leaves</Text>
                 </TouchableOpacity>
             </View>
 
@@ -106,14 +120,23 @@ export default function AdminDashboard({ navigation }: any) {
 const styles = StyleSheet.create({
     container: {
         padding: 20,
-        backgroundColor: '#fff',
         minHeight: '100%',
+    },
+    headerRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+        marginTop: 20,
     },
     title: {
         fontSize: 28,
         fontWeight: 'bold',
-        marginBottom: 20,
-        marginTop: 20,
+    },
+    iconBtn: {
+        backgroundColor: 'rgba(150,150,150,0.2)',
+        padding: 8,
+        borderRadius: 20,
     },
     statsContainer: {
         flexDirection: 'row',
@@ -121,13 +144,11 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     statCard: {
-        backgroundColor: '#f8f9fa',
         width: '48%',
         padding: 20,
         borderRadius: 10,
         alignItems: 'center',
         borderWidth: 1,
-        borderColor: '#eee',
     },
     statNumber: {
         fontSize: 24,
@@ -135,11 +156,10 @@ const styles = StyleSheet.create({
         color: '#007AFF',
     },
     statLabel: {
-        color: '#666',
         fontSize: 12,
     },
     alertSection: {
-        marginBottom: 10,
+        marginBottom: 20,
         backgroundColor: '#fff0f0',
         padding: 15,
         borderRadius: 10,
@@ -178,14 +198,12 @@ const styles = StyleSheet.create({
     },
     card: {
         width: '100%',
-        backgroundColor: 'white',
         padding: 20,
         borderRadius: 10,
         marginBottom: 10,
         flexDirection: 'row',
         alignItems: 'center',
         borderWidth: 1,
-        borderColor: '#eee',
         elevation: 2,
     },
     icon: {
@@ -200,6 +218,7 @@ const styles = StyleSheet.create({
         marginTop: 40,
         alignSelf: 'center',
         padding: 10,
+        marginBottom: 30,
     },
     logoutText: {
         color: 'red',

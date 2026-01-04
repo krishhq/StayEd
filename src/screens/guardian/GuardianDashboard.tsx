@@ -1,14 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../config/firebaseConfig';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+
+interface EntryExitLog {
+    id: string;
+    type: 'entry' | 'exit';
+    timestamp: any;
+    distance?: number;
+}
 
 export default function GuardianDashboard({ navigation }: any) {
     const { signOut, user } = useAuth();
     const [wardName, setWardName] = useState('Loading...');
+    const [wardId, setWardId] = useState<string | null>(null);
     const [attendanceCount, setAttendanceCount] = useState(0);
     const [pendingLeaves, setPendingLeaves] = useState(0);
+    const [entryExitLogs, setEntryExitLogs] = useState<EntryExitLog[]>([]);
+    const [loading, setLoading] = useState(true);
 
     // Hardcoded Ward Logic for Demo
     // In a real app, we would query a 'guardians' collection to find { guardianId: user.uid, wardId: ... }
@@ -23,29 +33,58 @@ export default function GuardianDashboard({ navigation }: any) {
                 const qRes = query(collection(db, 'residents_data')); // Fetch all
                 const snap = await getDocs(qRes);
 
+                let studentId = null;
                 if (!snap.empty) {
                     const firstStudent = snap.docs[0].data();
+                    studentId = snap.docs[0].id;
                     setWardName(firstStudent.name || 'Test Ward');
-                    // In real app, we'd use this student's UID to query logs
+                    setWardId(studentId);
                 } else {
                     setWardName('No Ward Linked');
                 }
 
                 // 2. Fetch Leaves (Mock query for "pending_guardian")
-                // Since we don't have the ward's UID easily without the link, we show global pending for demo
-                // OR we just show 0 if none.
                 const qLeaves = query(collection(db, 'leaves'), where('status', '==', 'pending_guardian'));
                 const snapLeaves = await getDocs(qLeaves);
                 setPendingLeaves(snapLeaves.size);
 
+                // 3. Fetch Entry/Exit Logs for the ward
+                if (studentId) {
+                    const qLogs = query(
+                        collection(db, 'entry_exit_logs'),
+                        where('userId', '==', studentId),
+                        orderBy('timestamp', 'desc'),
+                        limit(10)
+                    );
+                    const snapLogs = await getDocs(qLogs);
+                    const logs: EntryExitLog[] = snapLogs.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    } as EntryExitLog));
+                    setEntryExitLogs(logs);
+                }
+
             } catch (e) {
-                console.log(e);
+                console.log('Error fetching ward data:', e);
                 setWardName('Demo Ward');
+            } finally {
+                setLoading(false);
             }
         };
 
         fetchWardStats();
     }, []);
+
+    const formatTimestamp = (timestamp: any) => {
+        if (!timestamp) return 'Just now';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toLocaleString('en-IN', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
 
     return (
         <ScrollView contentContainerStyle={styles.container}>
@@ -69,6 +108,37 @@ export default function GuardianDashboard({ navigation }: any) {
                     <Text style={styles.statLabel}>Attendance %</Text>
                 </View>
             </View>
+
+            {/* Entry/Exit Logs Section */}
+            <Text style={styles.sectionTitle}>Entry/Exit Logs</Text>
+            {loading ? (
+                <ActivityIndicator size="large" color="#27ae60" />
+            ) : entryExitLogs.length > 0 ? (
+                <View style={styles.logsCard}>
+                    {entryExitLogs.map((log) => (
+                        <View key={log.id} style={styles.logItem}>
+                            <View style={[
+                                styles.logBadge,
+                                { backgroundColor: log.type === 'entry' ? '#4CAF50' : '#FF5252' }
+                            ]}>
+                                <Text style={styles.logBadgeText}>
+                                    {log.type === 'entry' ? '➡️ Entry' : '⬅️ Exit'}
+                                </Text>
+                            </View>
+                            <View style={styles.logDetails}>
+                                <Text style={styles.logTime}>{formatTimestamp(log.timestamp)}</Text>
+                                {log.distance && (
+                                    <Text style={styles.logDistance}>{log.distance.toFixed(0)}m from campus</Text>
+                                )}
+                            </View>
+                        </View>
+                    ))}
+                </View>
+            ) : (
+                <View style={styles.emptyState}>
+                    <Text style={styles.emptyText}>No entry/exit logs yet</Text>
+                </View>
+            )}
 
             <Text style={styles.sectionTitle}>Actions</Text>
 
@@ -157,6 +227,55 @@ const styles = StyleSheet.create({
     statLabel: {
         fontSize: 12,
         color: '#7f8c8d',
+    },
+    logsCard: {
+        backgroundColor: 'white',
+        borderRadius: 12,
+        padding: 15,
+        marginBottom: 25,
+        elevation: 2,
+    },
+    logItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
+    },
+    logBadge: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        marginRight: 12,
+    },
+    logBadgeText: {
+        color: 'white',
+        fontSize: 13,
+        fontWeight: 'bold',
+    },
+    logDetails: {
+        flex: 1,
+    },
+    logTime: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#2c3e50',
+        marginBottom: 2,
+    },
+    logDistance: {
+        fontSize: 12,
+        color: '#7f8c8d',
+    },
+    emptyState: {
+        backgroundColor: 'white',
+        borderRadius: 12,
+        padding: 30,
+        alignItems: 'center',
+        marginBottom: 25,
+    },
+    emptyText: {
+        color: '#7f8c8d',
+        fontSize: 14,
     },
     grid: {
         flexDirection: 'row',
