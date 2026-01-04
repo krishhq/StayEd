@@ -61,6 +61,7 @@ export default function RootNavigator() {
                             <Stack.Screen name="AllComplaints" component={AllComplaintsScreen} />
                             <Stack.Screen name="AttendanceLog" component={AttendanceLogScreen} />
                             <Stack.Screen name="AdminLeaves" component={AdminLeaveScreen} />
+                            <Stack.Screen name="Forum" component={ResidentForumScreen} />
                         </>
                     ) : userRole === 'guardian' ? (
                         <>
