@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert, ScrollView, TouchableOpacity } from 'react-native';
 import { db } from '../../config/firebaseConfig';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { sendBulkNotifications } from '../../utils/notificationUtils';
 
 export default function ComplaintScreen() {
     const { user } = useAuth();
@@ -22,15 +23,37 @@ export default function ComplaintScreen() {
         try {
             if (user) {
                 // Real Firestore Submission
-                await addDoc(collection(db, 'complaints'), {
+                const complaintData = {
                     userId: user.uid,
                     title,
                     description,
                     category,
                     status: 'pending',
                     createdAt: serverTimestamp(),
+                };
+
+                await addDoc(collection(db, 'complaints'), complaintData);
+
+                // Send Notification to Admins
+                const adminsSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'admin'), where('pushToken', '!=', null)));
+                const adminTokens: string[] = [];
+                adminsSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (data.pushToken) {
+                        adminTokens.push(data.pushToken);
+                    }
                 });
-                Alert.alert('Success', 'Complaint Submitted!');
+
+                if (adminTokens.length > 0) {
+                    await sendBulkNotifications(
+                        adminTokens,
+                        '⚠️ New Complaint Registered',
+                        `Category: ${category} - ${title}`,
+                        { type: 'complaint_alert' }
+                    );
+                }
+
+                Alert.alert('Success', 'Complaint Submitted and Admin Notified!');
                 setTitle('');
                 setDescription('');
             } else {

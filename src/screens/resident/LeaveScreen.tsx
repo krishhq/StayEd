@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert, ScrollView } from 'react-native';
 import { db } from '../../config/firebaseConfig';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { sendPushNotification } from '../../utils/notificationUtils';
 
 export default function LeaveScreen() {
     const { user } = useAuth();
@@ -20,15 +21,49 @@ export default function LeaveScreen() {
         setLoading(true);
         try {
             if (user) {
-                await addDoc(collection(db, 'leaves'), {
+                // 1. Submit leave request
+                const leaveData = {
                     userId: user.uid,
                     reason,
                     startDate,
                     endDate,
-                    status: 'pending_guardian', // Initial status
+                    status: 'pending_guardian',
                     createdAt: serverTimestamp(),
-                });
-                Alert.alert('Success', 'Leave Application Submitted!');
+                };
+
+                await addDoc(collection(db, 'leaves'), leaveData);
+
+                // 2. Notify Guardian
+                // Fetch resident's data to get guardianPhone
+                const residentsSnap = await getDocs(query(collection(db, 'residents_data'), where('phone', '==', user.phoneNumber || '')));
+
+                let guardianPhone = '';
+                let residentName = 'A resident';
+
+                if (!residentsSnap.empty) {
+                    const resData = residentsSnap.docs[0].data();
+                    guardianPhone = resData.guardianPhone;
+                    residentName = resData.name;
+                }
+
+                if (guardianPhone) {
+                    // Find guardian user with this phone
+                    const guardianUserSnap = await getDocs(query(collection(db, 'users'), where('phone', '==', guardianPhone), where('role', '==', 'guardian')));
+
+                    if (!guardianUserSnap.empty) {
+                        const guardianToken = guardianUserSnap.docs[0].data().pushToken;
+                        if (guardianToken) {
+                            await sendPushNotification(
+                                guardianToken,
+                                'New Leave Request',
+                                `Your ward ${residentName} has requested leave for ${startDate} to ${endDate}.`,
+                                { type: 'leave_request' }
+                            );
+                        }
+                    }
+                }
+
+                Alert.alert('Success', 'Leave Application Submitted and Guardian Notified!');
                 setReason('');
                 setStartDate('');
                 setEndDate('');

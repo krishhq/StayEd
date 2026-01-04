@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { db } from '../../config/firebaseConfig';
-import { collection, query, orderBy, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { sendPushNotification } from '../../utils/notificationUtils';
 
 export default function AllComplaintsScreen() {
     const [complaints, setComplaints] = useState<any[]>([]);
@@ -29,13 +30,28 @@ export default function AllComplaintsScreen() {
         fetchComplaints();
     }, []);
 
-    const resolveComplaint = async (id: string, currentStatus: string) => {
+    const resolveComplaint = async (id: string, currentStatus: string, userId: string, title: string) => {
         if (currentStatus === 'resolved') return;
 
         try {
             const docRef = doc(db, 'complaints', id);
             await updateDoc(docRef, { status: 'resolved' });
-            Alert.alert('Success', 'Complaint marked as resolved');
+
+            // Notify Resident
+            const userDocSnap = await getDoc(doc(db, 'users', userId));
+            if (userDocSnap.exists()) {
+                const residentToken = userDocSnap.data().pushToken;
+                if (residentToken) {
+                    await sendPushNotification(
+                        residentToken,
+                        '✅ Complaint Resolved',
+                        `Your complaint "${title}" has been marked as resolved.`,
+                        { type: 'complaint_resolved', complaintId: id }
+                    );
+                }
+            }
+
+            Alert.alert('Success', 'Complaint marked as resolved and resident notified');
             fetchComplaints(); // Refresh
         } catch (error: any) {
             Alert.alert('Error', error.message);
@@ -56,7 +72,7 @@ export default function AllComplaintsScreen() {
             {item.status !== 'resolved' && (
                 <TouchableOpacity
                     style={styles.resolveBtn}
-                    onPress={() => resolveComplaint(item.id, item.status)}
+                    onPress={() => resolveComplaint(item.id, item.status, item.userId, item.title)}
                 >
                     <Text style={styles.btnText}>Mark Resolved</Text>
                 </TouchableOpacity>

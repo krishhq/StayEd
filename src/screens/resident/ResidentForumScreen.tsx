@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { db } from '../../config/firebaseConfig';
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, getDocs, where } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { sendBulkNotifications } from '../../utils/notificationUtils';
+import { Switch } from 'react-native';
 
 export default function ResidentForumScreen() {
     const { user, userRole } = useAuth();
     const [messages, setMessages] = useState<any[]>([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(true);
+    const [notifyAll, setNotifyAll] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
     useEffect(() => {
@@ -33,15 +36,39 @@ export default function ResidentForumScreen() {
         if (inputText.trim().length === 0) return;
 
         try {
-            await addDoc(collection(db, 'forum_posts'), {
+            const messageData = {
                 text: inputText,
                 userId: user?.uid || 'anonymous',
-                // In a real app, we'd fetch the name from profile. 
-                // For now, prompt or use role. simplified for demo:
                 userName: userRole === 'admin' ? 'Admin' : 'Resident',
                 createdAt: serverTimestamp(),
-            });
+                notifyAll: notifyAll
+            };
+
+            await addDoc(collection(db, 'forum_posts'), messageData);
+
+            if (notifyAll) {
+                // Fetch all users with push tokens
+                const usersSnap = await getDocs(query(collection(db, 'users'), where('pushToken', '!=', null)));
+                const tokens: string[] = [];
+                usersSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (data.pushToken && doc.id !== user?.uid) {
+                        tokens.push(data.pushToken);
+                    }
+                });
+
+                if (tokens.length > 0) {
+                    await sendBulkNotifications(
+                        tokens,
+                        'New Important Forum Post',
+                        `${messageData.userName}: ${messageData.text.substring(0, 50)}${messageData.text.length > 50 ? '...' : ''}`,
+                        { type: 'forum', messageId: 'bulk' }
+                    );
+                }
+            }
+
             setInputText('');
+            setNotifyAll(false);
         } catch (error) {
             console.error('Error sending message:', error);
         }
@@ -82,17 +109,30 @@ export default function ResidentForumScreen() {
                 />
             )}
 
-            <View style={styles.inputContainer}>
-                <TextInput
-                    style={styles.input}
-                    value={inputText}
-                    onChangeText={setInputText}
-                    placeholder="Type a message..."
-                    multiline
-                />
-                <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
-                    <Text style={styles.sendText}>➤</Text>
-                </TouchableOpacity>
+            <View style={styles.inputWrapper}>
+                {userRole === 'admin' || true ? ( // Allowing everyone for demo, can restrict to admin if needed
+                    <View style={styles.notifyRow}>
+                        <Text style={styles.notifyLabel}>📣 Notify Everyone</Text>
+                        <Switch
+                            value={notifyAll}
+                            onValueChange={setNotifyAll}
+                            trackColor={{ false: "#767577", true: "#81b0ff" }}
+                            thumbColor={notifyAll ? "#0084ff" : "#f4f3f4"}
+                        />
+                    </View>
+                ) : null}
+                <View style={styles.inputContainer}>
+                    <TextInput
+                        style={styles.input}
+                        value={inputText}
+                        onChangeText={setInputText}
+                        placeholder="Type a message..."
+                        multiline
+                    />
+                    <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
+                        <Text style={styles.sendText}>➤</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
         </KeyboardAvoidingView>
     );
@@ -161,13 +201,29 @@ const styles = StyleSheet.create({
     leftText: {
         color: 'black',
     },
+    inputWrapper: {
+        backgroundColor: 'white',
+        borderTopWidth: 1,
+        borderTopColor: '#eee',
+    },
+    notifyRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        paddingHorizontal: 15,
+        paddingTop: 8,
+    },
+    notifyLabel: {
+        fontSize: 12,
+        color: '#666',
+        marginRight: 8,
+        fontWeight: '600',
+    },
     inputContainer: {
         flexDirection: 'row',
         padding: 10,
         backgroundColor: 'white',
         alignItems: 'center',
-        borderTopWidth: 1,
-        borderTopColor: '#eee',
     },
     input: {
         flex: 1,

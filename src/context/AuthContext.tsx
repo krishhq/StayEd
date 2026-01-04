@@ -1,7 +1,8 @@
 import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
 import { User, onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth, db } from '../config/firebaseConfig';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { registerForPushNotificationsAsync } from '../utils/notificationUtils';
 
 // Define User Roles
 export type UserRole = 'resident' | 'admin' | 'guardian' | null;
@@ -60,6 +61,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                                 } as HostelData);
                             }
                         }
+
+                        // Register Push Notifications
+                        registerForPushNotificationsAsync().then(token => {
+                            if (token) {
+                                updateDoc(userDocRef, { pushToken: token });
+                            }
+                        });
                     } else {
                         console.log("No user document found!");
                         setUserRole(null);

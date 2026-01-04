@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { db } from '../../config/firebaseConfig';
-import { collection, addDoc, getCountFromServer, query, where, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, getCountFromServer, query, where, serverTimestamp, getDocs } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { sendBulkNotifications } from '../../utils/notificationUtils';
 
 const MOCK_MENU = {
     'Monday': {
@@ -92,7 +93,6 @@ export default function MessMenuScreen() {
 
                 if (skipPercentage > 10) {
                     // 3. Alert Admin if > 10%
-                    // We add to a 'mess_alerts' collection
                     await addDoc(collection(db, 'mess_alerts'), {
                         title: 'High Skip Rate Alert',
                         message: `${skipPercentage.toFixed(1)}% of residents are skipping ${mealId}. Please inform mess.`,
@@ -100,6 +100,26 @@ export default function MessMenuScreen() {
                         createdAt: serverTimestamp(),
                         isRead: false
                     });
+
+                    // 4. Send Push Notification to all Admins
+                    const adminsSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'admin'), where('pushToken', '!=', null)));
+                    const adminTokens: string[] = [];
+                    adminsSnap.forEach(doc => {
+                        const data = doc.data();
+                        if (data.pushToken) {
+                            adminTokens.push(data.pushToken);
+                        }
+                    });
+
+                    if (adminTokens.length > 0) {
+                        await sendBulkNotifications(
+                            adminTokens,
+                            '📢 High Mess Skip Alert',
+                            `${skipPercentage.toFixed(1)}% residents skipped ${selectedDay} ${mealType}.`,
+                            { type: 'mess_alert', mealId }
+                        );
+                    }
+
                     console.log('Admin Alerted: High Skip Rate');
                 }
             }
