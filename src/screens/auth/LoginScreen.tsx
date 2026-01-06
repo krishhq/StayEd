@@ -1,19 +1,23 @@
 import React, { useState, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { FirebaseRecaptchaVerifierModal, FirebaseRecaptchaBanner } from 'expo-firebase-recaptcha';
-import app from '../../config/firebaseConfig';
-import { getAuth, PhoneAuthProvider, signInWithCredential } from 'firebase/auth';
+import app, { auth } from '../../config/firebaseConfig'; // Import auth directly
+import { PhoneAuthProvider, signInWithCredential, signInAnonymously } from 'firebase/auth'; // Removed getAuth
+import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../../config/firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { getUserByPhone } from '../../services/firestoreService';
 
 export default function LoginScreen({ navigation }: any) {
     const { colors } = useTheme();
+    const { refreshUserData } = useAuth();
     const [phoneNumber, setPhoneNumber] = useState('');
     const [verificationCode, setVerificationCode] = useState('');
     const [verificationId, setVerificationId] = useState<string | null>(null);
     const recaptchaVerifier = useRef(null);
     const [loading, setLoading] = useState(false);
-    const auth = getAuth(app);
+    // const auth = getAuth(app); // Removed local getAuth
 
     // Dynamic Styles
     const dynamicStyles = {
@@ -58,7 +62,53 @@ export default function LoginScreen({ navigation }: any) {
             );
             await signInWithCredential(auth, credential);
             // AuthContext handles state change automatically
+
+            // Fetch User Role
+            const userProfile = await getUserByPhone(phoneNumber);
+            if (userProfile) {
+                // Check if user doc exists with UID
+                const uid = auth.currentUser!.uid;
+                const userDocRef = doc(db, 'users', uid);
+                const userDocSnap = await getDoc(userDocRef);
+
+                if (!userDocSnap.exists()) {
+                    // MIGRATION REQUIRED: Link Firestore Doc with Auth UID
+                    // The user was registered with a random ID. We need to move it to users/{uid}
+                    console.log(`[Login] Migrating user from ${userProfile.id} to ${uid}`);
+
+                    try {
+                        // 1. Copy data to new doc (ID = UID)
+                        await setDoc(userDocRef, {
+                            ...userProfile,
+                            id: uid, // Update ID field
+                            uid: uid // Add UID field
+                        });
+
+                        // 2. Delete old doc (ID = Random)
+                        // ONLY delete if the IDs are different (sanity check)
+                        if (userProfile.id !== uid) {
+                            await deleteDoc(doc(db, 'users', userProfile.id));
+                        }
+
+                        Alert.alert("Account Linked", "Your profile has been successfully linked!");
+                    } catch (migrationError) {
+                        console.error("Migration Error:", migrationError);
+                        Alert.alert("Error", "Failed to link profile.");
+                    }
+                }
+
+                // Determine screen based on role (handled by RootNavigator via AuthContext)
+                // We just need to ensure AuthContext has the role.
+                // NOTE: In a real app, AuthContext should listen to the user doc.
+                // For now, we manually suggest the role if needed, but context userRole is key.
+                // @ts-ignore
+                Alert.alert("Welcome", `Logged in as ${userProfile.role}`);
+            } else {
+                Alert.alert("Error", "User not found. Please register.");
+                // Optionally sign out if user not found in DB
+            }
         } catch (error: any) {
+            console.error(error);
             Alert.alert("Error", "Invalid Code");
         } finally {
             setLoading(false);
@@ -120,31 +170,58 @@ export default function LoginScreen({ navigation }: any) {
                         </TouchableOpacity>
                     </>
                 )}
-            </View>
+                {/* Register Hostel Button */}
+                <TouchableOpacity
+                    style={styles.registerHostelBtn}
+                    onPress={() => navigation.navigate('HostelRegistration')}
+                >
+                    <Text style={styles.registerHostelText}>🏢 Register Your Hostel/PG</Text>
+                </TouchableOpacity>
 
-            {/* Dev Only: Simulation Buttons */}
-            <View style={{ marginTop: 30 }}>
-                <Text style={{ textAlign: 'center', color: 'gray', marginBottom: 10 }}>--- Developer Simulation ---</Text>
-                <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center' }}>
-                    <TouchableOpacity onPress={() => simulateLogin('resident')} style={[styles.simBtn, { backgroundColor: '#4CAF50' }]}>
-                        <Text style={{ color: 'white' }}>Resident</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => simulateLogin('admin')} style={[styles.simBtn, { backgroundColor: '#2196F3' }]}>
-                        <Text style={{ color: 'white' }}>Admin</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => simulateLogin('guardian')} style={[styles.simBtn, { backgroundColor: '#FF9800' }]}>
-                        <Text style={{ color: 'white' }}>Guardian</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
+                {/* Dev Mode Login Button */}
+                <TouchableOpacity
+                    style={styles.devBtn}
+                    onPress={async () => {
+                        if (!phoneNumber) {
+                            Alert.alert("Error", "Please enter phone number first");
+                            return;
+                        }
 
-            {/* Register Hostel Button */}
-            <TouchableOpacity
-                style={styles.registerHostelBtn}
-                onPress={() => navigation.navigate('HostelRegistration')}
-            >
-                <Text style={styles.registerHostelText}>🏢 Register Your Hostel/PG</Text>
-            </TouchableOpacity>
+                        setLoading(true);
+                        try {
+                            const formattedPhone = phoneNumber.startsWith('+91') ? phoneNumber : `+91${phoneNumber}`;
+                            console.log(`[LoginScreen] Dev Mode attempt. Current Auth User: ${auth.currentUser?.uid || 'None'}`);
+                            console.log(`[LoginScreen] Querying for phone: ${formattedPhone}`);
+
+                            // Lookup user by phone
+                            const userProfile = await getUserByPhone(formattedPhone);
+                            if (!userProfile) {
+                                console.warn(`[LoginScreen] No userProfile found for ${formattedPhone}`);
+                                Alert.alert("Error", "No user found with this phone number. Please register first.");
+                                setLoading(false);
+                                return;
+                            }
+                            console.log(`[LoginScreen] Found profile for ${userProfile.role}: ${userProfile.name}`);
+
+                            // Sign in anonymously
+                            const userCredential = await signInAnonymously(auth);
+                            const uid = userCredential.user.uid;
+
+                            // Use AuthContext to perform migration and refresh state
+                            await refreshUserData(uid, formattedPhone);
+
+                            Alert.alert("Dev Login Success", `Logged in as ${userProfile.role}`);
+                        } catch (error: any) {
+                            console.error("[LoginScreen] Dev Login Error:", error);
+                            Alert.alert("Error", error.message);
+                        } finally {
+                            setLoading(false);
+                        }
+                    }}
+                >
+                    <Text style={styles.devBtnText}>[Dev] Skip OTP & Login</Text>
+                </TouchableOpacity>
+            </View>
         </View>
     );
 }
@@ -216,6 +293,20 @@ const styles = StyleSheet.create({
     registerHostelText: {
         color: 'white',
         fontSize: 16,
+        fontWeight: 'bold',
+    },
+    devBtn: {
+        marginTop: 15,
+        backgroundColor: '#e74c3c',
+        padding: 12,
+        borderRadius: 8,
+        alignItems: 'center',
+        borderWidth: 2,
+        borderColor: '#c0392b',
+    },
+    devBtnText: {
+        color: 'white',
+        fontSize: 14,
         fontWeight: 'bold',
     },
 });

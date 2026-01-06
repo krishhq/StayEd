@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, Button, Alert, ScrollView } from 'react-native';
-import { db } from '../../config/firebaseConfig';
-import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
+// Removed: import { db } from '../../config/firebaseConfig';
+// Removed: import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
+import { useAuth } from '../../context/AuthContext';
+import { addResident, registerUser } from '../../services/firestoreService';
 
 export default function RegisterResidentScreen() {
     const [name, setName] = useState('');
@@ -15,26 +17,56 @@ export default function RegisterResidentScreen() {
     const [permanentAddress, setPermanentAddress] = useState('');
     const [aadharCard, setAadharCard] = useState('');
 
+    const { hostelId } = useAuth(); // Get Hostel ID from Auth Context
+
     const handleRegister = async () => {
         if (!name || !phone || !guardianName || !guardianPhone || !room) {
             Alert.alert('Error', 'Please fill in all required fields');
             return;
         }
 
+        if (!hostelId) {
+            Alert.alert('Error', 'Hostel ID not found. Are you logged in as an Admin?');
+            return;
+        }
+
         try {
-            await addDoc(collection(db, 'residents_data'), {
+            // Create Resident Document
+            const residentId = await addResident({
                 name,
                 phone,
                 email,
-                room,
+                roomNumber: room,
                 guardianName,
                 guardianPhone,
                 permanentAddress,
                 aadharCard,
-                status: 'active',
-                createdAt: new Date().toISOString()
+                hostelId: hostelId, // Link to Admin's Hostel
             });
-            Alert.alert('Success', 'Resident Registered Successfully');
+
+            // Create User Document for Resident (for login)
+            await registerUser({
+                id: residentId,
+                name,
+                phone,
+                email,
+                role: 'resident',
+                hostelId: hostelId,
+                residentId: residentId, // Link back to resident record
+            }, residentId); // <-- Pass residentId as the Doc ID
+
+            // Create User Document for Guardian (for login)
+            const guardianUserId = `guardian_${residentId}`;
+            await registerUser({
+                id: guardianUserId,
+                name: guardianName,
+                phone: guardianPhone,
+                role: 'guardian',
+                hostelId: hostelId,
+                linkedResidentId: residentId, // Link to their child/ward
+            }, guardianUserId); // <-- Pass guardianUserId as the Doc ID
+
+            Alert.alert('Success', 'Resident & Guardian Registered! Both can now login.');
             // Reset Form
             setName('');
             setPhone('');

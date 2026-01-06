@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../config/firebaseConfig';
 import { collection, getCountFromServer, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 
 export default function AdminDashboard({ navigation }: any) {
-    const { signOut } = useAuth();
+    const { user, signOut, hostelId } = useAuth(); // Added hostelId
     const { colors, theme, toggleTheme } = useTheme();
     const [residentCount, setResidentCount] = useState<number | string>('-');
     const [complaintCount, setComplaintCount] = useState<number | string>('-');
@@ -21,36 +22,49 @@ export default function AdminDashboard({ navigation }: any) {
         subText: { color: colors.subText },
     };
 
-    useEffect(() => {
-        // Fetch Basic Stats
-        const fetchStats = async () => {
-            try {
-                const resCollection = collection(db, 'residents_data');
-                if (resCollection) {
-                    const resSnap = await getCountFromServer(resCollection);
-                    setResidentCount(resSnap.data().count);
+    // Refresh stats every time the dashboard is focused
+    useFocusEffect(
+        useCallback(() => {
+            const fetchStats = async () => {
+                if (!hostelId) {
+                    console.log("[AdminDashboard] No hostelId, skipping fetch");
+                    return;
                 }
 
-                const compCollection = collection(db, 'complaints');
-                if (compCollection) {
-                    const compSnap = await getCountFromServer(compCollection);
-                    setComplaintCount(compSnap.data().count);
+                console.log(`[AdminDashboard] Fetching stats for hostel: ${hostelId}`);
+                try {
+                    // Filter Residents by Hostel ID
+                    const resCollection = collection(db, 'residents');
+                    const qRes = query(resCollection, where("hostelId", "==", hostelId));
+                    const resSnap = await getCountFromServer(qRes);
+                    const rCount = resSnap.data().count;
+                    setResidentCount(rCount);
+
+                    // Filter Complaints by Hostel ID
+                    const compCollection = collection(db, 'complaints');
+                    const qComp = query(compCollection, where("hostelId", "==", hostelId));
+                    const compSnap = await getCountFromServer(qComp);
+                    const cCount = compSnap.data().count;
+                    setComplaintCount(cCount);
+
+                    console.log(`[AdminDashboard] Stats loaded: ${rCount} residents, ${cCount} complaints`);
+
+                    // Mess Alerts
+                    const alertQ = query(collection(db, 'mess_alerts'), orderBy('createdAt', 'desc'), limit(3));
+                    const alertSnap = await getDocs(alertQ);
+                    const fetchedAlerts: any[] = [];
+                    alertSnap.forEach(doc => fetchedAlerts.push({ id: doc.id, ...doc.data() }));
+                    setAlerts(fetchedAlerts);
+                } catch (e) {
+                    console.error('[AdminDashboard] Stats Error:', e);
+                    setResidentCount(0);
+                    setComplaintCount(0);
                 }
+            };
 
-                const alertQ = query(collection(db, 'mess_alerts'), orderBy('createdAt', 'desc'), limit(3));
-                const alertSnap = await getDocs(alertQ);
-                const fetchedAlerts: any[] = [];
-                alertSnap.forEach(doc => fetchedAlerts.push({ id: doc.id, ...doc.data() }));
-                setAlerts(fetchedAlerts);
-            } catch (e) {
-                console.log('Stats Error:', e);
-                setResidentCount(0);
-                setComplaintCount(0);
-            }
-        };
-
-        fetchStats();
-    }, []);
+            fetchStats();
+        }, [hostelId])
+    );
 
     return (
         <ScrollView contentContainerStyle={[styles.container, dynamicStyles.container]}>

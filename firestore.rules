@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Helper Functions ---
+
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Safer helper to get user data (returns empty map if document doesn't exist or unauthenticated)
+    function getUserData() {
+      let path = /databases/$(database)/documents/users/$(request.auth.uid);
+      return (request.auth != null && exists(path)) ? get(path).data : {};
+    }
+
+    // Check if current user is the owner of the specific hostel
+    function isHostelOwner(hostelId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/hostels/$(hostelId)).data.ownerId == request.auth.uid;
+    }
+
+    // --- Collection Rules ---
+
+    // 1. Users Collection
+    match /users/{userId} {
+      // DEBUG: Allow everything for now
+      allow read, write: if true; 
+    }
+
+    // 2. Hostels Collection
+    match /hostels/{hostelId} {
+      // DEBUG: Allow everything for now
+      allow read, write: if true;
+    }
+
+    // 3. Residents Collection
+    match /residents/{residentId} {
+      // READ: Allow if:
+      // 1. User is admin in same hostel
+      // 2. User is the resident themselves
+      // 3. User is the linked guardian
+      allow read: if isAuthenticated() && (
+                    (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
+                    (getUserData().role == 'resident' && getUserData().residentId == residentId) ||
+                    (getUserData().role == 'guardian' && getUserData().linkedResidentId == residentId)
+                  );
+      
+      // CREATE: Allow if user is admin and creating resident in their hostel
+      allow create: if isAuthenticated() && 
+                      getUserData().role == 'admin' && 
+                      getUserData().hostelId == request.resource.data.hostelId;
+      
+      // UPDATE/DELETE: Allow if user is admin in the same hostel
+      allow update, delete: if isAuthenticated() && 
+                              getUserData().role == 'admin' && 
+                              getUserData().hostelId == resource.data.hostelId;
+    }
+
+    // 4. Complaints Collection
+    match /complaints/{complaintId} {
+      // CREATE: Residents can create complaints for their hostel
+      allow create: if isAuthenticated() && 
+                      getUserData().role == 'resident' &&
+                      request.resource.data.hostelId == getUserData().hostelId &&
+                      (request.resource.data.residentId == getUserData().residentId || 
+                       request.resource.data.residentId == request.auth.uid);
+      
+      // READ: Residents can read their own, Admins/Guardians can read all in their hostel
+      allow read: if isAuthenticated() && (
+        (getUserData().role == 'resident' && (resource.data.residentId == getUserData().residentId || resource.data.residentId == request.auth.uid)) ||
+        (getUserData().role == 'admin' && resource.data.hostelId == getUserData().hostelId) ||
+        (getUserData().role == 'guardian' && resource.data.hostelId == getUserData().hostelId)
+      );
+      
+      // UPDATE: Only admins in the same hostel can update complaint status
+      allow update: if isAuthenticated() && 
+                      getUserData().role == 'admin' &&
+                      resource.data.hostelId == getUserData().hostelId;
+      
+      // DELETE: No one can delete complaints (for record keeping)
+      allow delete: if false;
+    }
+  }
+}

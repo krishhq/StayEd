@@ -1,11 +1,15 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator, Modal } from 'react-native';
 import * as Location from 'expo-location';
-import { db } from '../../config/firebaseConfig';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { registerHostel, registerUser } from '../../services/firestoreService';
+import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
+import app, { auth } from '../../config/firebaseConfig';
+import { PhoneAuthProvider, signInWithCredential, signInAnonymously } from 'firebase/auth';
+
+import { useAuth } from '../../context/AuthContext';
 
 export default function HostelRegistrationScreen({ navigation }: any) {
+    const { refreshUserData } = useAuth();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
 
@@ -25,6 +29,12 @@ export default function HostelRegistrationScreen({ navigation }: any) {
     const [latitude, setLatitude] = useState('');
     const [longitude, setLongitude] = useState('');
     const [locationMethod, setLocationMethod] = useState<'manual' | 'gps' | null>(null);
+
+    // OTP & Auth
+    const recaptchaVerifier = useRef(null);
+    const [verificationId, setVerificationId] = useState<string | null>(null);
+    const [verificationCode, setVerificationCode] = useState('');
+    const [showOtpModal, setShowOtpModal] = useState(false);
 
     const validateStep1 = () => {
         if (!adminName.trim()) {
@@ -109,58 +119,178 @@ export default function HostelRegistrationScreen({ navigation }: any) {
         setLoading(false);
     };
 
-    const handleSubmit = async () => {
+    // 1. Trigger OTP Send
+    const initiateRegistration = async () => {
         if (!validateStep3()) return;
 
         setLoading(true);
         try {
-            // Create hostel document
-            const hostelRef = await addDoc(collection(db, 'hostels'), {
+            const phoneProvider = new PhoneAuthProvider(auth);
+            const formattedPhone = `+91${adminPhone}`;
+            const vId = await phoneProvider.verifyPhoneNumber(
+                formattedPhone,
+                recaptchaVerifier.current!
+            );
+            setVerificationId(vId);
+            setShowOtpModal(true);
+            Alert.alert('OTP Sent', `Please enter the code sent to ${formattedPhone}`);
+        } catch (error: any) {
+            Alert.alert('Error Sending OTP', error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // 2. Verify OTP & Register
+    const handleVerifyAndRegister = async () => {
+        if (!verificationCode) {
+            Alert.alert('Error', 'Please enter verification code');
+            return;
+        }
+        setLoading(true);
+        try {
+            // A. Sign In
+            const credential = PhoneAuthProvider.credential(
+                verificationId!,
+                verificationCode
+            );
+            const userCredential = await signInWithCredential(auth, credential);
+            const uid = userCredential.user.uid;
+
+            console.log("Authenticated for Registration with UID:", uid);
+
+            // B. Create Hostel Doc
+            const hostelId = await registerHostel({
                 name: hostelName,
                 address: hostelAddress,
+                // @ts-ignore
                 pincode: hostelPincode,
+                // @ts-ignore
                 location: {
                     latitude: parseFloat(latitude),
                     longitude: parseFloat(longitude)
                 },
+                // @ts-ignore
                 occupancy: parseInt(occupancy),
+                ownerId: uid, // REAL UID Linked!
+                // @ts-ignore
                 adminDetails: {
                     name: adminName,
                     phone: adminPhone,
                     aadharNumber: adminAadhar,
                     address: adminAddress
                 },
-                createdAt: serverTimestamp(),
-                status: 'approved' // Auto-approved
+                status: 'approved'
             });
 
-            // Create admin user in users collection
-            await addDoc(collection(db, 'users'), {
+            // C. Create User Doc (Linked to UID)
+            await registerUser({
+                id: uid,
+                uid: uid,
                 name: adminName,
-                phone: adminPhone,
+                phone: `+91${adminPhone}`,
                 role: 'admin',
-                hostelId: hostelRef.id,
-                createdAt: serverTimestamp()
-            });
+                hostelId: hostelId,
+            }, uid); // Pass UID as second arg!
+
+            setShowOtpModal(false);
+            // D. Refresh Auth Context to update User Role
+            await refreshUserData(uid);
 
             Alert.alert(
                 'Success!',
-                `${hostelName} has been registered successfully!\n\nYou can now login with phone number: ${adminPhone}`,
+                'Hostel registered successfully! You are now logged in.',
                 [
                     {
-                        text: 'Go to Login',
-                        onPress: () => navigation.navigate('Login')
+                        text: 'OK',
+                        onPress: () => { }
+                    }
+                ]
+            );
+
+        } catch (error: any) {
+            console.error("Registration Error", error);
+            Alert.alert('Error', error.message || 'Registration failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // 3. Dev Mode Bypass
+    const handleDevRegistration = async () => {
+        if (!validateStep3()) return;
+        setLoading(true);
+        try {
+            console.log("Starting Dev Registration (Anonymous)...");
+
+            // A. Sign In Anonymously (Bypass SMS)
+            const userCredential = await signInAnonymously(auth);
+            const uid = userCredential.user.uid;
+            console.log("Dev Authenticated with UID:", uid);
+
+            // B. Create Hostel Doc
+            const hostelId = await registerHostel({
+                name: hostelName,
+                address: hostelAddress,
+                // @ts-ignore
+                pincode: hostelPincode,
+                // @ts-ignore
+                location: {
+                    latitude: parseFloat(latitude),
+                    longitude: parseFloat(longitude)
+                },
+                // @ts-ignore
+                occupancy: parseInt(occupancy),
+                ownerId: uid,
+                // @ts-ignore
+                adminDetails: {
+                    name: adminName,
+                    phone: adminPhone,
+                    aadharNumber: adminAadhar,
+                    address: adminAddress
+                },
+                status: 'approved'
+            });
+
+            // C. Create User Doc 
+            await registerUser({
+                id: uid,
+                uid: uid,
+                name: adminName,
+                phone: `+91${adminPhone}`,
+                role: 'admin',
+                hostelId: hostelId,
+                isDevUser: true // Mark as Dev User
+            }, uid); // Pass UID as second arg!
+
+            // D. Refresh Auth Context to update User Role
+            await refreshUserData(uid);
+
+            Alert.alert(
+                'Success (Dev Mode)',
+                'Hostel registered without OTP. You are logged in.',
+                [
+                    {
+                        text: 'OK',
+                        onPress: () => { } // State change will auto-navigate
                     }
                 ]
             );
         } catch (error: any) {
-            Alert.alert('Error', error.message);
+            console.error("Dev Registration Error", error);
+            Alert.alert('Dev Error', error.message);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     return (
         <ScrollView style={styles.container}>
+            <FirebaseRecaptchaVerifierModal
+                ref={recaptchaVerifier}
+                firebaseConfig={app.options}
+            />
+
             <Text style={styles.title}>Register Your Hostel/PG</Text>
             <Text style={styles.subtitle}>Step {step} of 3</Text>
 
@@ -331,22 +461,60 @@ export default function HostelRegistrationScreen({ navigation }: any) {
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={[styles.submitBtn, loading && styles.btnDisabled]}
-                            onPress={handleSubmit}
+                            onPress={initiateRegistration} // Trigger OTP first!
                             disabled={loading}
                         >
                             {loading ? (
                                 <ActivityIndicator color="white" />
                             ) : (
-                                <Text style={styles.btnText}>Register Hostel</Text>
+                                <Text style={styles.btnText}>Verify & Register Hostel</Text>
                             )}
                         </TouchableOpacity>
                     </View>
+
+                    {/* Dev Bypass Button */}
+                    <TouchableOpacity
+                        style={[styles.devBtn, { marginTop: 15 }]}
+                        onPress={handleDevRegistration}
+                    >
+                        <Text style={styles.devBtnText}>[Dev] Skip OTP & Register</Text>
+                    </TouchableOpacity>
                 </View>
             )}
 
             <TouchableOpacity style={styles.cancelBtn} onPress={() => navigation.goBack()}>
                 <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
+
+            {/* OTP Modal */}
+            <Modal visible={showOtpModal} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Enter OTP</Text>
+                        <Text style={styles.modalSub}>Sent to +91 {adminPhone}</Text>
+
+                        <TextInput
+                            style={styles.otpInput}
+                            placeholder="123456"
+                            keyboardType="number-pad"
+                            onChangeText={setVerificationCode}
+                            autoFocus
+                        />
+
+                        <TouchableOpacity
+                            style={styles.verifyBtn}
+                            onPress={handleVerifyAndRegister}
+                            disabled={loading}
+                        >
+                            {loading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Verify & Create Account</Text>}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity onPress={() => setShowOtpModal(false)}>
+                            <Text style={styles.closeModalText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </ScrollView>
     );
 }
@@ -492,4 +660,64 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
     },
+    // Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalContent: {
+        width: '85%',
+        backgroundColor: 'white',
+        borderRadius: 20,
+        padding: 25,
+        alignItems: 'center',
+        elevation: 5,
+    },
+    modalTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        marginBottom: 10,
+    },
+    modalSub: {
+        fontSize: 16,
+        color: '#666',
+        marginBottom: 20,
+    },
+    otpInput: {
+        borderWidth: 1,
+        borderColor: '#ccc',
+        borderRadius: 10,
+        width: '100%',
+        padding: 15,
+        fontSize: 24,
+        textAlign: 'center',
+        letterSpacing: 5,
+        marginBottom: 20,
+    },
+    verifyBtn: {
+        backgroundColor: '#27ae60',
+        padding: 15,
+        borderRadius: 10,
+        width: '100%',
+        alignItems: 'center',
+        marginBottom: 15,
+    },
+    closeModalText: {
+        color: '#e74c3c',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    devBtn: {
+        backgroundColor: '#e67e22',
+        padding: 15,
+        borderRadius: 10,
+        alignItems: 'center',
+        width: '100%',
+    },
+    devBtnText: {
+        color: 'white',
+        fontWeight: 'bold',
+    }
 });

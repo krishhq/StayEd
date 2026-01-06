@@ -83,6 +83,6 @@ export default function RootNavigator() {
                     </>
                 )}
             </Stack.Navigator>
-        </NavigationContainer>
+        </NavigationContainer >
     );
 }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../config/firebaseConfig';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 
 interface EntryExitLog {
     id: string;
@@ -12,7 +12,7 @@ interface EntryExitLog {
 }
 
 export default function GuardianDashboard({ navigation }: any) {
-    const { signOut, user } = useAuth();
+    const { signOut, user, linkedResidentId } = useAuth();
     const [wardName, setWardName] = useState('Loading...');
     const [wardId, setWardId] = useState<string | null>(null);
     const [attendanceCount, setAttendanceCount] = useState(0);
@@ -20,50 +20,45 @@ export default function GuardianDashboard({ navigation }: any) {
     const [entryExitLogs, setEntryExitLogs] = useState<EntryExitLog[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Hardcoded Ward Logic for Demo
-    // In a real app, we would query a 'guardians' collection to find { guardianId: user.uid, wardId: ... }
-    // Here we just fetch *any* resident or a specific one for demo purposes.
-
     useEffect(() => {
-        // Demo: Fetch stats for a "Mock Ward"
-        // Ideally we would look for a resident linked to this guardian
         const fetchWardStats = async () => {
             try {
-                // 1. Find a resident (just pick the first one found or a "Test Student")
-                const qRes = query(collection(db, 'residents_data')); // Fetch all
-                const snap = await getDocs(qRes);
+                if (linkedResidentId) {
+                    const residentDocRef = doc(db, 'residents', linkedResidentId);
+                    const residentSnap = await getDoc(residentDocRef);
 
-                let studentId = null;
-                if (!snap.empty) {
-                    const firstStudent = snap.docs[0].data();
-                    studentId = snap.docs[0].id;
-                    setWardName(firstStudent.name || 'Test Ward');
-                    setWardId(studentId);
+                    if (residentSnap.exists()) {
+                        const residentData = residentSnap.data();
+                        const studentId = residentSnap.id;
+                        setWardName(residentData.name || 'Test Ward');
+                        setWardId(studentId);
+
+                        const qLeaves = query(
+                            collection(db, 'leaves'),
+                            where('userId', '==', studentId),
+                            where('status', '==', 'pending_guardian')
+                        );
+                        const snapLeaves = await getDocs(qLeaves);
+                        setPendingLeaves(snapLeaves.size);
+
+                        const qLogs = query(
+                            collection(db, 'entry_exit_logs'),
+                            where('userId', '==', studentId),
+                            orderBy('timestamp', 'desc'),
+                            limit(10)
+                        );
+                        const snapLogs = await getDocs(qLogs);
+                        const logs: EntryExitLog[] = snapLogs.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        } as EntryExitLog));
+                        setEntryExitLogs(logs);
+                    } else {
+                        setWardName('Ward record not found');
+                    }
                 } else {
                     setWardName('No Ward Linked');
                 }
-
-                // 2. Fetch Leaves (Mock query for "pending_guardian")
-                const qLeaves = query(collection(db, 'leaves'), where('status', '==', 'pending_guardian'));
-                const snapLeaves = await getDocs(qLeaves);
-                setPendingLeaves(snapLeaves.size);
-
-                // 3. Fetch Entry/Exit Logs for the ward
-                if (studentId) {
-                    const qLogs = query(
-                        collection(db, 'entry_exit_logs'),
-                        where('userId', '==', studentId),
-                        orderBy('timestamp', 'desc'),
-                        limit(10)
-                    );
-                    const snapLogs = await getDocs(qLogs);
-                    const logs: EntryExitLog[] = snapLogs.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    } as EntryExitLog));
-                    setEntryExitLogs(logs);
-                }
-
             } catch (e) {
                 console.log('Error fetching ward data:', e);
                 setWardName('Demo Ward');
@@ -73,7 +68,7 @@ export default function GuardianDashboard({ navigation }: any) {
         };
 
         fetchWardStats();
-    }, []);
+    }, [linkedResidentId]);
 
     const formatTimestamp = (timestamp: any) => {
         if (!timestamp) return 'Just now';

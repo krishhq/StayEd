@@ -35,7 +35,7 @@ export default function LeaveScreen() {
 
                 // 2. Notify Guardian
                 // Fetch resident's data to get guardianPhone
-                const residentsSnap = await getDocs(query(collection(db, 'residents_data'), where('phone', '==', user.phoneNumber || '')));
+                const residentsSnap = await getDocs(query(collection(db, 'residents'), where('phone', '==', user.phoneNumber || '')));
 
                 let guardianPhone = '';
                 let residentName = 'A resident';

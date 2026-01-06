@@ -78,7 +78,7 @@ export default function MessMenuScreen() {
 
             // 2. Check Threshold Logic
             // Fetch Total Residents
-            const residentsSnap = await getCountFromServer(collection(db, 'residents_data'));
+            const residentsSnap = await getCountFromServer(collection(db, 'residents'));
             const totalResidents = residentsSnap.data().count;
 
             // Fetch Total Skips for this MealId

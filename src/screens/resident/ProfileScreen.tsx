@@ -30,7 +30,7 @@ export default function ProfileScreen() {
             }
 
             try {
-                const q = query(collection(db, 'residents_data'), where('phone', '==', user.phoneNumber));
+                const q = query(collection(db, 'residents'), where('phone', '==', user.phoneNumber));
                 const snapshot = await getDocs(q);
 
                 if (!snapshot.empty) {

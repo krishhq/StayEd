@@ -1,25 +1,38 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth'; // Authentication
+import { initializeApp, getApps, getApp } from 'firebase/app';
+// @ts-ignore
+import { initializeAuth, getReactNativePersistence, getAuth, Auth } from 'firebase/auth';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirestore } from 'firebase/firestore'; // NoSQL Database for Users, Complaints
 import { getDatabase } from 'firebase/database'; // Realtime Database for Chat/Logs
 
-// TODO: Replace with your actual Firebase project configuration
-// You can find this in the Firebase Console -> Project Settings -> General -> Your apps
+// Updated with User provided credentials
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID",
-    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com" // Important for Realtime DB
+    apiKey: "AIzaSyD798LOVbouHr4PphKgNzGvr4XvqCXZtpo",
+    authDomain: "stayed-2b94c.firebaseapp.com",
+    databaseURL: "https://stayed-2b94c-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "stayed-2b94c",
+    storageBucket: "stayed-2b94c.firebasestorage.app",
+    messagingSenderId: "480056134372",
+    appId: "1:480056134372:web:6d1804fb07c4f1d776faf1"
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+let app: any; // Using any to avoid complex type exports issues, or import FirebaseApp
+let auth: Auth;
 
-// Initialize Services
-export const auth = getAuth(app);
+if (getApps().length === 0) {
+    app = initializeApp(firebaseConfig);
+    // Initialize Services
+    // Use initializeAuth for persistence
+    auth = initializeAuth(app, {
+        persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+    });
+} else {
+    app = getApp();
+    auth = getAuth(app);
+}
+
+export { auth };
 export const db = getFirestore(app);
 export const rtdb = getDatabase(app);
 
