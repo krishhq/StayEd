@@ -7,20 +7,20 @@ import { addResident, registerUser } from '../../services/firestoreService';
 
 export default function RegisterResidentScreen() {
     const [name, setName] = useState('');
-    const [phone, setPhone] = useState('');
+    const [phone, setPhone] = useState('+91');
     const [email, setEmail] = useState('');
     const [room, setRoom] = useState('');
 
     // New Fields
     const [guardianName, setGuardianName] = useState('');
-    const [guardianPhone, setGuardianPhone] = useState('');
+    const [guardianPhone, setGuardianPhone] = useState('+91');
     const [permanentAddress, setPermanentAddress] = useState('');
     const [aadharCard, setAadharCard] = useState('');
 
     const { hostelId } = useAuth(); // Get Hostel ID from Auth Context
 
     const handleRegister = async () => {
-        if (!name || !phone || !guardianName || !guardianPhone || !room) {
+        if (!name || !phone || phone === '+91' || !guardianName || !guardianPhone || guardianPhone === '+91' || !room) {
             Alert.alert('Error', 'Please fill in all required fields');
             return;
         }
@@ -67,13 +67,13 @@ export default function RegisterResidentScreen() {
             }, guardianUserId); // <-- Pass guardianUserId as the Doc ID
 
             Alert.alert('Success', 'Resident & Guardian Registered! Both can now login.');
-            // Reset Form
+            // Reset Form (Keeping the prefix)
             setName('');
-            setPhone('');
+            setPhone('+91');
             setEmail('');
             setRoom('');
             setGuardianName('');
-            setGuardianPhone('');
+            setGuardianPhone('+91');
             setPermanentAddress('');
             setAadharCard('');
         } catch (error: any) {
@@ -91,7 +91,19 @@ export default function RegisterResidentScreen() {
             <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Student Name" />
 
             <Text style={styles.label}>Phone Number*</Text>
-            <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="+91..." />
+            <TextInput
+                style={styles.input}
+                value={phone}
+                onChangeText={(text) => {
+                    if (!text.startsWith('+91')) {
+                        setPhone('+91' + text.replace(/^\+?9?1?/, ''));
+                    } else {
+                        setPhone(text);
+                    }
+                }}
+                keyboardType="phone-pad"
+                placeholder="+91..."
+            />
 
             <Text style={styles.label}>Email (Optional)</Text>
             <TextInput style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" placeholder="student@example.com" />
@@ -108,7 +120,19 @@ export default function RegisterResidentScreen() {
             <TextInput style={styles.input} value={guardianName} onChangeText={setGuardianName} placeholder="Parent/Guardian Name" />
 
             <Text style={styles.label}>Guardian Phone*</Text>
-            <TextInput style={styles.input} value={guardianPhone} onChangeText={setGuardianPhone} keyboardType="phone-pad" placeholder="+91..." />
+            <TextInput
+                style={styles.input}
+                value={guardianPhone}
+                onChangeText={(text) => {
+                    if (!text.startsWith('+91')) {
+                        setGuardianPhone('+91' + text.replace(/^\+?9?1?/, ''));
+                    } else {
+                        setGuardianPhone(text);
+                    }
+                }}
+                keyboardType="phone-pad"
+                placeholder="+91..."
+            />
 
             <Text style={styles.label}>Permanent Address</Text>
             <TextInput

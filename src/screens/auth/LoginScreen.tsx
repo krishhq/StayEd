@@ -12,7 +12,7 @@ import { getUserByPhone } from '../../services/firestoreService';
 export default function LoginScreen({ navigation }: any) {
     const { colors } = useTheme();
     const { refreshUserData } = useAuth();
-    const [phoneNumber, setPhoneNumber] = useState('');
+    const [phoneNumber, setPhoneNumber] = useState('+91');
     const [verificationCode, setVerificationCode] = useState('');
     const [verificationId, setVerificationId] = useState<string | null>(null);
     const recaptchaVerifier = useRef(null);
@@ -29,7 +29,7 @@ export default function LoginScreen({ navigation }: any) {
     };
 
     const sendVerification = async () => {
-        if (!phoneNumber) {
+        if (!phoneNumber || phoneNumber === '+91') {
             Alert.alert("Error", "Please enter a valid phone number");
             return;
         }
@@ -37,7 +37,7 @@ export default function LoginScreen({ navigation }: any) {
         try {
             const phoneProvider = new PhoneAuthProvider(auth);
             const verificationId = await phoneProvider.verifyPhoneNumber(
-                phoneNumber,
+                phoneNumber.startsWith('+91') ? phoneNumber : `+91${phoneNumber}`,
                 recaptchaVerifier.current!
             );
             setVerificationId(verificationId);
@@ -64,7 +64,8 @@ export default function LoginScreen({ navigation }: any) {
             // AuthContext handles state change automatically
 
             // Fetch User Role
-            const userProfile = await getUserByPhone(phoneNumber);
+            const formattedPhone = phoneNumber.startsWith('+91') ? phoneNumber : `+91${phoneNumber}`;
+            const userProfile = await getUserByPhone(formattedPhone);
             if (userProfile) {
                 // Check if user doc exists with UID
                 const uid = auth.currentUser!.uid;
@@ -141,7 +142,14 @@ export default function LoginScreen({ navigation }: any) {
                             keyboardType="phone-pad"
                             autoComplete="tel"
                             textContentType="telephoneNumber"
-                            onChangeText={setPhoneNumber}
+                            value={phoneNumber}
+                            onChangeText={(text) => {
+                                if (!text.startsWith('+91')) {
+                                    setPhoneNumber('+91' + text.replace(/^\+?9?1?/, ''));
+                                } else {
+                                    setPhoneNumber(text);
+                                }
+                            }}
                         />
                         <TouchableOpacity
                             style={[styles.btn, loading && styles.btnDisabled]}

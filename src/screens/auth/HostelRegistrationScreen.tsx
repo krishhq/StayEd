@@ -15,7 +15,7 @@ export default function HostelRegistrationScreen({ navigation }: any) {
 
     // Admin Details
     const [adminName, setAdminName] = useState('');
-    const [adminPhone, setAdminPhone] = useState('');
+    const [adminPhone, setAdminPhone] = useState('+91');
     const [adminAadhar, setAdminAadhar] = useState('');
     const [adminAddress, setAdminAddress] = useState('');
 
@@ -41,7 +41,8 @@ export default function HostelRegistrationScreen({ navigation }: any) {
             Alert.alert('Error', 'Please enter admin name');
             return false;
         }
-        if (!adminPhone.trim() || adminPhone.length !== 10) {
+        const purePhone = adminPhone.replace('+91', '').trim();
+        if (!purePhone || purePhone.length !== 10) {
             Alert.alert('Error', 'Please enter valid 10-digit phone number');
             return false;
         }
@@ -126,7 +127,7 @@ export default function HostelRegistrationScreen({ navigation }: any) {
         setLoading(true);
         try {
             const phoneProvider = new PhoneAuthProvider(auth);
-            const formattedPhone = `+91${adminPhone}`;
+            const formattedPhone = adminPhone.startsWith('+91') ? adminPhone : `+91${adminPhone}`;
             const vId = await phoneProvider.verifyPhoneNumber(
                 formattedPhone,
                 recaptchaVerifier.current!
@@ -176,7 +177,7 @@ export default function HostelRegistrationScreen({ navigation }: any) {
                 // @ts-ignore
                 adminDetails: {
                     name: adminName,
-                    phone: adminPhone,
+                    phone: adminPhone.startsWith('+91') ? adminPhone : `+91${adminPhone}`,
                     aadharNumber: adminAadhar,
                     address: adminAddress
                 },
@@ -188,7 +189,7 @@ export default function HostelRegistrationScreen({ navigation }: any) {
                 id: uid,
                 uid: uid,
                 name: adminName,
-                phone: `+91${adminPhone}`,
+                phone: adminPhone.startsWith('+91') ? adminPhone : `+91${adminPhone}`,
                 role: 'admin',
                 hostelId: hostelId,
             }, uid); // Pass UID as second arg!
@@ -245,7 +246,7 @@ export default function HostelRegistrationScreen({ navigation }: any) {
                 // @ts-ignore
                 adminDetails: {
                     name: adminName,
-                    phone: adminPhone,
+                    phone: adminPhone.startsWith('+91') ? adminPhone : `+91${adminPhone}`,
                     aadharNumber: adminAadhar,
                     address: adminAddress
                 },
@@ -257,7 +258,7 @@ export default function HostelRegistrationScreen({ navigation }: any) {
                 id: uid,
                 uid: uid,
                 name: adminName,
-                phone: `+91${adminPhone}`,
+                phone: adminPhone.startsWith('+91') ? adminPhone : `+91${adminPhone}`,
                 role: 'admin',
                 hostelId: hostelId,
                 isDevUser: true // Mark as Dev User
@@ -318,9 +319,14 @@ export default function HostelRegistrationScreen({ navigation }: any) {
                         style={styles.input}
                         placeholder="10-digit phone number"
                         value={adminPhone}
-                        onChangeText={setAdminPhone}
+                        onChangeText={(text) => {
+                            if (!text.startsWith('+91')) {
+                                setAdminPhone('+91' + text.replace(/^\+?9?1?/, ''));
+                            } else {
+                                setAdminPhone(text);
+                            }
+                        }}
                         keyboardType="phone-pad"
-                        maxLength={10}
                     />
 
                     <Text style={styles.label}>Aadhar Card Number *</Text>
@@ -491,7 +497,8 @@ export default function HostelRegistrationScreen({ navigation }: any) {
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>Enter OTP</Text>
-                        <Text style={styles.modalSub}>Sent to +91 {adminPhone}</Text>
+                        <Text style={styles.modalSub}>Sent to {adminPhone}</Text>
+
 
                         <TextInput
                             style={styles.otpInput}

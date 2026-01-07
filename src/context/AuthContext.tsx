@@ -165,11 +165,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
             console.log(`[AuthContext] Auth state changed: ${firebaseUser ? 'User Logged In (' + firebaseUser.uid + ')' : 'User Logged Out'}`);
-            setUser(firebaseUser);
+
             if (firebaseUser) {
-                setIsLoading(true);
+                setIsLoading(true); // SET LOADING FIRST
+                setUser(firebaseUser);
                 await fetchUserData(firebaseUser.uid);
             } else {
+                setUser(null);
                 setUserData(null);
                 setUserRole(null);
                 setHostelId(null);
