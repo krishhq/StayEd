@@ -2,15 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { db } from '../../config/firebaseConfig';
 import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { useAuth } from '../../context/AuthContext';
 
 export default function GuardianLeaveScreen() {
+    const { linkedResidentId } = useAuth();
     const [leaves, setLeaves] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     const fetchLeaves = async () => {
         setLoading(true);
         try {
-            const q = query(collection(db, 'leaves'), where('status', '==', 'pending_guardian'));
+            if (!linkedResidentId) return;
+            const q = query(
+                collection(db, 'leaves'),
+                where('residentId', '==', linkedResidentId),
+                where('status', '==', 'pending_guardian')
+            );
             const querySnapshot = await getDocs(q);
             const fetched: any[] = [];
             querySnapshot.forEach((doc) => {
@@ -32,7 +39,7 @@ export default function GuardianLeaveScreen() {
     const handleAction = async (id: string, action: 'approve' | 'reject') => {
         try {
             const docRef = doc(db, 'leaves', id);
-            const newStatus = action === 'approve' ? 'approved_guardian' : 'rejected';
+            const newStatus = action === 'approve' ? 'pending_admin' : 'rejected';
             await updateDoc(docRef, { status: newStatus });
             Alert.alert('Success', `Leave ${action}d`);
             fetchLeaves();

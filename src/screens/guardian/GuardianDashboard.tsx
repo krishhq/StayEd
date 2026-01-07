@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../config/firebaseConfig';
 import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
@@ -14,61 +15,112 @@ interface EntryExitLog {
 export default function GuardianDashboard({ navigation }: any) {
     const { signOut, user, linkedResidentId } = useAuth();
     const [wardName, setWardName] = useState('Loading...');
-    const [wardId, setWardId] = useState<string | null>(null);
-    const [attendanceCount, setAttendanceCount] = useState(0);
+    const [wardStatus, setWardStatus] = useState<'In Hostel' | 'Left Campus' | 'Unknown'>('Unknown');
+    const [lastLogTime, setLastLogTime] = useState<string | null>(null);
     const [pendingLeaves, setPendingLeaves] = useState(0);
     const [entryExitLogs, setEntryExitLogs] = useState<EntryExitLog[]>([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchWardStats = async () => {
-            try {
-                if (linkedResidentId) {
-                    const residentDocRef = doc(db, 'residents', linkedResidentId);
-                    const residentSnap = await getDoc(residentDocRef);
+    useFocusEffect(
+        useCallback(() => {
+            const fetchWardStats = async () => {
+                if (!linkedResidentId) {
+                    setWardName('No Ward Linked');
+                    setLoading(false);
+                    return;
+                }
 
-                    if (residentSnap.exists()) {
-                        const residentData = residentSnap.data();
-                        const studentId = residentSnap.id;
-                        setWardName(residentData.name || 'Test Ward');
-                        setWardId(studentId);
+                try {
+                    setLoading(true);
 
+                    // 1. Fetch Ward Profile Info
+                    try {
+                        const residentDocRef = doc(db, 'residents', linkedResidentId);
+                        const residentSnap = await getDoc(residentDocRef);
+                        if (residentSnap.exists()) {
+                            const residentData = residentSnap.data();
+                            setWardName(residentData.name || 'Resident');
+                        } else {
+                            setWardName('Ward record not found');
+                        }
+                    } catch (err) {
+                        console.error('[GuardianDash] Error fetching ward info:', err);
+                        setWardName('Error loading name');
+                    }
+
+                    // 2. Fetch Pending Leaves (Isolated/Resilient)
+                    try {
                         const qLeaves = query(
                             collection(db, 'leaves'),
-                            where('userId', '==', studentId),
+                            where('residentId', '==', linkedResidentId),
                             where('status', '==', 'pending_guardian')
                         );
                         const snapLeaves = await getDocs(qLeaves);
                         setPendingLeaves(snapLeaves.size);
+                    } catch (err) {
+                        console.error('[GuardianDash] Error fetching leaves:', err);
+                        setPendingLeaves(0);
+                    }
 
+                    // 3. Fetch Entry/Exit Logs (Isolated with Fallback)
+                    try {
+                        const logsRef = collection(db, 'entry_exit_logs');
                         const qLogs = query(
-                            collection(db, 'entry_exit_logs'),
-                            where('userId', '==', studentId),
+                            logsRef,
+                            where('residentId', '==', linkedResidentId),
                             orderBy('timestamp', 'desc'),
                             limit(10)
                         );
-                        const snapLogs = await getDocs(qLogs);
+
+                        let snapLogs;
+                        try {
+                            snapLogs = await getDocs(qLogs);
+                        } catch (indexError) {
+                            console.warn('[GuardianDash] Index missing for logs, falling back to client-sort');
+                            const qFallback = query(
+                                logsRef,
+                                where('residentId', '==', linkedResidentId)
+                            );
+                            snapLogs = await getDocs(qFallback);
+                        }
+
                         const logs: EntryExitLog[] = snapLogs.docs.map(doc => ({
                             id: doc.id,
                             ...doc.data()
                         } as EntryExitLog));
-                        setEntryExitLogs(logs);
-                    } else {
-                        setWardName('Ward record not found');
-                    }
-                } else {
-                    setWardName('No Ward Linked');
-                }
-            } catch (e) {
-                console.log('Error fetching ward data:', e);
-                setWardName('Demo Ward');
-            } finally {
-                setLoading(false);
-            }
-        };
 
-        fetchWardStats();
-    }, [linkedResidentId]);
+                        // Client-side sort if it was a fallback query
+                        if (logs.length > 0 && !logs[0].timestamp?.toDate) {
+                            logs.sort((a, b) => {
+                                const timeA = a.timestamp?.toMillis() || 0;
+                                const timeB = b.timestamp?.toMillis() || 0;
+                                return timeB - timeA;
+                            });
+                        }
+
+                        // Determine most recent status AFTER sorting
+                        if (logs.length > 0) {
+                            const latest = logs[0];
+                            setWardStatus(latest.type === 'entry' ? 'In Hostel' : 'Left Campus');
+                            setLastLogTime(formatTimestamp(latest.timestamp));
+                        }
+
+                        setEntryExitLogs(logs.slice(0, 10));
+                    } catch (err) {
+                        console.error('[GuardianDash] Error fetching logs:', err);
+                        setEntryExitLogs([]);
+                    }
+
+                } catch (e) {
+                    console.log('Global Guardian Stats Error:', e);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            fetchWardStats();
+        }, [linkedResidentId])
+    );
 
     const formatTimestamp = (timestamp: any) => {
         if (!timestamp) return 'Just now';
@@ -88,7 +140,14 @@ export default function GuardianDashboard({ navigation }: any) {
             <View style={styles.wardCard}>
                 <Text style={styles.wardLabel}>Your Ward</Text>
                 <Text style={styles.wardName}>{wardName}</Text>
-                <Text style={styles.wardStatus}>Status: In Hostel</Text>
+                <View style={[
+                    styles.wardStatusBadge,
+                    { backgroundColor: wardStatus === 'In Hostel' ? 'rgba(255,255,255,0.2)' : '#e67e22' }
+                ]}>
+                    <Text style={styles.wardStatusText}>
+                        {wardStatus === 'In Hostel' ? '📍 In Hostel' : `🚶 Left Campus (${lastLogTime || 'Unknown'})`}
+                    </Text>
+                </View>
             </View>
 
             <Text style={styles.sectionTitle}>Overview</Text>
@@ -186,13 +245,17 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         marginBottom: 5,
     },
-    wardStatus: {
+    wardStatusBadge: {
+        marginTop: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+    },
+    wardStatusText: {
         color: 'white',
-        fontWeight: '600',
-        backgroundColor: 'rgba(0,0,0,0.1)',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 10,
+        fontWeight: 'bold',
+        fontSize: 13,
     },
     sectionTitle: {
         fontSize: 18,

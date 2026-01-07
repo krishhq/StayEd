@@ -15,72 +15,132 @@ service cloud.firestore {
       return (request.auth != null && exists(path)) ? get(path).data : {};
     }
 
-    // Check if current user is the owner of the specific hostel
-    function isHostelOwner(hostelId) {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/hostels/$(hostelId)).data.ownerId == request.auth.uid;
+    // Check if user is an admin
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == 'admin';
     }
 
     // --- Collection Rules ---
-
+    
     // 1. Users Collection
     match /users/{userId} {
-      // DEBUG: Allow everything for now
-      allow read, write: if true; 
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        (request.method == 'delete' && resource.data.phone == getUserData().phone)
+      );
     }
 
     // 2. Hostels Collection
     match /hostels/{hostelId} {
-      // DEBUG: Allow everything for now
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
     }
 
     // 3. Residents Collection
     match /residents/{residentId} {
-      // READ: Allow if:
-      // 1. User is admin in same hostel
-      // 2. User is the resident themselves
-      // 3. User is the linked guardian
       allow read: if isAuthenticated() && (
-                    (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
+                    (isAdmin() && getUserData().hostelId == resource.data.hostelId) ||
                     (getUserData().role == 'resident' && getUserData().residentId == residentId) ||
                     (getUserData().role == 'guardian' && getUserData().linkedResidentId == residentId)
                   );
-      
-      // CREATE: Allow if user is admin and creating resident in their hostel
-      allow create: if isAuthenticated() && 
-                      getUserData().role == 'admin' && 
-                      getUserData().hostelId == request.resource.data.hostelId;
-      
-      // UPDATE/DELETE: Allow if user is admin in the same hostel
-      allow update, delete: if isAuthenticated() && 
-                              getUserData().role == 'admin' && 
-                              getUserData().hostelId == resource.data.hostelId;
+      allow write: if isAdmin() && (resource == null || getUserData().hostelId == resource.data.hostelId);
     }
 
     // 4. Complaints Collection
     match /complaints/{complaintId} {
-      // CREATE: Residents can create complaints for their hostel
       allow create: if isAuthenticated() && 
                       getUserData().role == 'resident' &&
-                      request.resource.data.hostelId == getUserData().hostelId &&
-                      (request.resource.data.residentId == getUserData().residentId || 
-                       request.resource.data.residentId == request.auth.uid);
-      
-      // READ: Residents can read their own, Admins/Guardians can read all in their hostel
+                      request.resource.data.hostelId == getUserData().hostelId;
       allow read: if isAuthenticated() && (
         (getUserData().role == 'resident' && (resource.data.residentId == getUserData().residentId || resource.data.residentId == request.auth.uid)) ||
-        (getUserData().role == 'admin' && resource.data.hostelId == getUserData().hostelId) ||
+        (isAdmin() && resource.data.hostelId == getUserData().hostelId) ||
         (getUserData().role == 'guardian' && resource.data.hostelId == getUserData().hostelId)
       );
       
-      // UPDATE: Only admins in the same hostel can update complaint status
       allow update: if isAuthenticated() && 
                       getUserData().role == 'admin' &&
                       resource.data.hostelId == getUserData().hostelId;
       
-      // DELETE: No one can delete complaints (for record keeping)
       allow delete: if false;
+    }
+
+    // 5. Attendance & Entry/Exit Logs
+    match /attendance/{id} {
+      allow create: if isAuthenticated() && getUserData().role == 'resident';
+      allow read: if isAuthenticated() && (
+        (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
+        (getUserData().role == 'resident' && getUserData().residentId == resource.data.residentId) ||
+        (getUserData().role == 'guardian' && getUserData().linkedResidentId == resource.data.residentId)
+      );
+    }
+
+    match /entry_exit_logs/{id} {
+      allow create: if isAuthenticated() && getUserData().role == 'resident';
+      allow read: if isAuthenticated() && (
+        (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
+        (getUserData().role == 'resident' && getUserData().residentId == resource.data.residentId) ||
+        (getUserData().role == 'guardian' && getUserData().linkedResidentId == resource.data.residentId)
+      );
+    }
+
+    // 6. Leaves Collection
+    match /leaves/{id} {
+      allow create: if isAuthenticated() && getUserData().role == 'resident';
+      allow read: if isAuthenticated() && (
+        (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
+        (getUserData().role == 'resident' && getUserData().residentId == resource.data.residentId) ||
+        (getUserData().role == 'guardian' && getUserData().linkedResidentId == resource.data.residentId)
+      );
+      allow update: if isAuthenticated() && (
+        (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
+        (getUserData().role == 'guardian' && getUserData().linkedResidentId == resource.data.residentId)
+      );
+    }
+
+    // 7. Mess Alerts
+    match /mess_alerts/{id} {
+      allow read: if isAuthenticated() && (
+        (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
+        (getUserData().role == 'resident' && getUserData().hostelId == resource.data.hostelId)
+      );
+      allow write: if isAuthenticated() && getUserData().role == 'admin';
+    }
+
+    // 8. Mess Skip Logic
+    match /meal_skips/{id} {
+      allow create: if isAuthenticated() && getUserData().role == 'resident';
+      allow read: if isAuthenticated() && (
+        (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
+        (getUserData().role == 'resident' && request.auth.uid == resource.data.userId)
+      );
+    }
+
+    // 9. Community Forum
+    match /forum_posts/{id} {
+      allow create: if isAuthenticated() &&
+                      request.resource.data.hostelId == getUserData().hostelId &&
+                      (
+                        (getUserData().role == 'admin' && request.resource.data.postType == 'admin_broadcast') ||
+                        (getUserData().role == 'resident' && request.resource.data.postType == 'resident_msg')
+                      );
+      allow read: if isAuthenticated() &&
+                    resource.data.hostelId == getUserData().hostelId &&
+                    (
+                      getUserData().role == 'resident' || 
+                      (getUserData().role == 'admin' && resource.data.postType == 'admin_broadcast')
+                    );
+      allow update, delete: if false; // Persistent record
+    }
+
+    // 10. Emergency Broadcasts
+    match /broadcasts/{id} {
+      allow create: if isAuthenticated() && 
+                      getUserData().role == 'admin' &&
+                      request.resource.data.hostelId == getUserData().hostelId;
+      allow read: if isAuthenticated() &&
+                    resource.data.hostelId == getUserData().hostelId;
+      allow update, delete: if false; // Persistent record
     }
   }
 }

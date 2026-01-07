@@ -18,6 +18,7 @@ import ComplaintScreen from '../screens/resident/ComplaintScreen';
 
 import LeaveScreen from '../screens/resident/LeaveScreen';
 import ProfileScreen from '../screens/resident/ProfileScreen';
+import BroadcastHistoryScreen from '../screens/resident/BroadcastHistoryScreen';
 
 // Admin Screens
 import AdminDashboard from '../screens/admin/AdminDashboard';
@@ -25,6 +26,7 @@ import RegisterResidentScreen from '../screens/admin/RegisterResidentScreen';
 import AllComplaintsScreen from '../screens/admin/AllComplaintsScreen';
 import AttendanceLogScreen from '../screens/admin/AttendanceLogScreen';
 import AdminLeaveScreen from '../screens/admin/AdminLeaveScreen';
+import AdminBroadcastScreen from '../screens/admin/AdminBroadcastScreen';
 
 // Guardian Screens
 import GuardianDashboard from '../screens/guardian/GuardianDashboard';
@@ -57,6 +59,7 @@ export default function RootNavigator() {
                             <Stack.Screen name="Leave" component={LeaveScreen} />
                             <Stack.Screen name="Mess" component={MessMenuScreen} />
                             <Stack.Screen name="Profile" component={ProfileScreen} />
+                            <Stack.Screen name="BroadcastHistory" component={BroadcastHistoryScreen} options={{ title: 'Broadcasts' }} />
                         </>
                     ) : userRole === 'admin' ? (
                         <>
@@ -65,6 +68,7 @@ export default function RootNavigator() {
                             <Stack.Screen name="AllComplaints" component={AllComplaintsScreen} />
                             <Stack.Screen name="AttendanceLog" component={AttendanceLogScreen} />
                             <Stack.Screen name="AdminLeaves" component={AdminLeaveScreen} />
+                            <Stack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} options={{ title: 'Send Broadcast' }} />
                         </>
                     ) : userRole === 'guardian' ? (
                         <>

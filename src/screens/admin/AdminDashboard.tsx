@@ -4,7 +4,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../config/firebaseConfig';
-import { collection, getCountFromServer, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { collection, getCountFromServer, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore';
+import { ATTENDANCE_SLOTS } from '../../utils/attendanceUtils';
 
 export default function AdminDashboard({ navigation }: any) {
     const { user, signOut, hostelId } = useAuth(); // Added hostelId
@@ -12,6 +13,7 @@ export default function AdminDashboard({ navigation }: any) {
     const [residentCount, setResidentCount] = useState<number | string>('-');
     const [complaintCount, setComplaintCount] = useState<number | string>('-');
     const [alerts, setAlerts] = useState<any[]>([]);
+    const [missedAttendance, setMissedAttendance] = useState<{ count: number, slotName: string } | null>(null);
 
     // Dynamic Styles
     const dynamicStyles = {
@@ -33,32 +35,105 @@ export default function AdminDashboard({ navigation }: any) {
 
                 console.log(`[AdminDashboard] Fetching stats for hostel: ${hostelId}`);
                 try {
-                    // Filter Residents by Hostel ID
-                    const resCollection = collection(db, 'residents');
-                    const qRes = query(resCollection, where("hostelId", "==", hostelId));
-                    const resSnap = await getCountFromServer(qRes);
-                    const rCount = resSnap.data().count;
-                    setResidentCount(rCount);
+                    // 1. Resident Count (Isolated)
+                    try {
+                        const resCollection = collection(db, 'residents');
+                        const qRes = query(resCollection, where("hostelId", "==", hostelId));
+                        const resSnap = await getCountFromServer(qRes);
+                        setResidentCount(resSnap.data().count);
+                    } catch (err) {
+                        console.error('[AdminDashboard] Resident Count Error:', err);
+                        setResidentCount('Error');
+                    }
 
-                    // Filter Complaints by Hostel ID
-                    const compCollection = collection(db, 'complaints');
-                    const qComp = query(compCollection, where("hostelId", "==", hostelId));
-                    const compSnap = await getCountFromServer(qComp);
-                    const cCount = compSnap.data().count;
-                    setComplaintCount(cCount);
+                    // 2. Complaint Count (Isolated)
+                    try {
+                        const compCollection = collection(db, 'complaints');
+                        const qComp = query(compCollection, where("hostelId", "==", hostelId));
+                        const compSnap = await getCountFromServer(qComp);
+                        setComplaintCount(compSnap.data().count);
+                    } catch (err) {
+                        console.error('[AdminDashboard] Complaint Count Error:', err);
+                        setComplaintCount('Error');
+                    }
 
-                    console.log(`[AdminDashboard] Stats loaded: ${rCount} residents, ${cCount} complaints`);
+                    // 3. Mess Alerts (Isolated with client-side sort fallback)
+                    try {
+                        const alertCollection = collection(db, 'mess_alerts');
+                        const alertQ = query(
+                            alertCollection,
+                            where('hostelId', '==', hostelId),
+                            orderBy('createdAt', 'desc'),
+                            limit(3)
+                        );
 
-                    // Mess Alerts
-                    const alertQ = query(collection(db, 'mess_alerts'), orderBy('createdAt', 'desc'), limit(3));
-                    const alertSnap = await getDocs(alertQ);
-                    const fetchedAlerts: any[] = [];
-                    alertSnap.forEach(doc => fetchedAlerts.push({ id: doc.id, ...doc.data() }));
-                    setAlerts(fetchedAlerts);
-                } catch (e) {
-                    console.error('[AdminDashboard] Stats Error:', e);
-                    setResidentCount(0);
-                    setComplaintCount(0);
+                        try {
+                            const alertSnap = await getDocs(alertQ);
+                            const fetchedAlerts: any[] = [];
+                            alertSnap.forEach(doc => fetchedAlerts.push({ id: doc.id, ...doc.data() }));
+                            setAlerts(fetchedAlerts);
+                        } catch (indexError) {
+                            console.warn('[AdminDashboard] Alerts index missing, falling back to client-side filter/sort');
+                            // Fallback: Fetch without orderBy to avoid index requirement
+                            const alertQFallback = query(alertCollection, where('hostelId', '==', hostelId));
+                            const alertSnap = await getDocs(alertQFallback);
+                            const fetchedAlerts: any[] = [];
+                            alertSnap.forEach(doc => fetchedAlerts.push({ id: doc.id, ...doc.data() }));
+
+                            // Sort and limit on client
+                            const sorted = fetchedAlerts.sort((a, b) =>
+                                (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0)
+                            ).slice(0, 3);
+                            setAlerts(sorted);
+                        }
+                    } catch (err) {
+                        console.error('[AdminDashboard] Mess Alerts Error:', err);
+                        setAlerts([]);
+                    }
+
+                    // 4. Post-Slot Attendance Report (Isolated)
+                    try {
+                        const now = new Date();
+                        const currentHour = now.getHours() + now.getMinutes() / 60;
+                        let targetSlot: 'MORNING' | 'EVENING' | null = null;
+                        let slotLabel = '';
+
+                        if (currentHour > ATTENDANCE_SLOTS.EVENING.end) {
+                            targetSlot = 'EVENING';
+                            slotLabel = 'Evening (8:00 PM - 9:30 PM)';
+                        } else if (currentHour > ATTENDANCE_SLOTS.MORNING.end) {
+                            targetSlot = 'MORNING';
+                            slotLabel = 'Morning (7:00 AM - 9:00 AM)';
+                        }
+
+                        if (targetSlot && typeof residentCount === 'number') {
+                            const startTime = new Date();
+                            startTime.setHours(Math.floor(ATTENDANCE_SLOTS[targetSlot].start), (ATTENDANCE_SLOTS[targetSlot].start % 1) * 60, 0, 0);
+                            const endTime = new Date();
+                            endTime.setHours(Math.floor(ATTENDANCE_SLOTS[targetSlot].end), (ATTENDANCE_SLOTS[targetSlot].end % 1) * 60, 0, 0);
+
+                            const attQ = query(
+                                collection(db, 'attendance'),
+                                where('hostelId', '==', hostelId),
+                                where('timestamp', '>=', Timestamp.fromDate(startTime)),
+                                where('timestamp', '<=', Timestamp.fromDate(endTime))
+                            );
+                            const attSnap = await getDocs(attQ);
+                            const uniqueResidents = new Set(attSnap.docs.map(doc => doc.data().residentId));
+                            const attendedCount = uniqueResidents.size;
+                            const missed = Math.max(0, residentCount - attendedCount);
+
+                            setMissedAttendance({ count: missed, slotName: slotLabel });
+                        } else {
+                            setMissedAttendance(null);
+                        }
+                    } catch (err) {
+                        console.error('[AdminDashboard] Attendance Report Error:', err);
+                        setMissedAttendance(null);
+                    }
+
+                } catch (e: any) {
+                    console.error('[AdminDashboard] Global Stats Error:', e);
                 }
             };
 
@@ -87,16 +162,32 @@ export default function AdminDashboard({ navigation }: any) {
                 </View>
             </View>
 
-            {/* Alerts */}
-            {alerts.length > 0 && (
-                <View style={styles.alertSection}>
-                    <Text style={styles.sectionHeader}>🚨 Urgent Alerts</Text>
-                    {alerts.map((alert) => (
-                        <View key={alert.id} style={styles.alertCard}>
-                            <Text style={styles.alertTitle}>{alert.title}</Text>
-                            <Text style={styles.alertMsg}>{alert.message}</Text>
+            {/* Alerts & Reports Section */}
+            {(alerts.length > 0 || missedAttendance) && (
+                <View style={styles.reportSection}>
+                    {missedAttendance && (
+                        <View style={styles.attendanceReport}>
+                            <Text style={styles.sectionHeader}>📈 Attendance Gap Report</Text>
+                            <View style={styles.reportCard}>
+                                <Text style={styles.reportMain}>
+                                    <Text style={styles.reportHighlight}>{missedAttendance.count}</Text> Residents missed
+                                </Text>
+                                <Text style={styles.reportSub}>{missedAttendance.slotName}</Text>
+                            </View>
                         </View>
-                    ))}
+                    )}
+
+                    {alerts.length > 0 && (
+                        <View style={[styles.alertSection, missedAttendance && { marginTop: 15 }]}>
+                            <Text style={styles.sectionHeader}>🚨 Urgent Alerts</Text>
+                            {alerts.map((alert) => (
+                                <View key={alert.id} style={styles.alertCard}>
+                                    <Text style={styles.alertTitle}>{alert.title}</Text>
+                                    <Text style={styles.alertMsg}>{alert.message}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    )}
                 </View>
             )}
 
@@ -122,11 +213,18 @@ export default function AdminDashboard({ navigation }: any) {
                     <Text style={styles.icon}>✈️</Text>
                     <Text style={[styles.cardText, dynamicStyles.cardText]}>View Leaves</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AdminBroadcast')}>
+                    <Text style={styles.icon}>📢</Text>
+                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Send Broadcast / Notice</Text>
+                </TouchableOpacity>
             </View>
 
             <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
                 <Text style={styles.logoutText}>Logout</Text>
             </TouchableOpacity>
+
+            <View style={{ height: 40 }} />
         </ScrollView>
     );
 }
@@ -172,8 +270,34 @@ const styles = StyleSheet.create({
     statLabel: {
         fontSize: 12,
     },
-    alertSection: {
+    reportSection: {
         marginBottom: 20,
+    },
+    attendanceReport: {
+        backgroundColor: '#f1f2f6',
+        padding: 15,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#dfe4ea',
+    },
+    reportCard: {
+        marginTop: 5,
+    },
+    reportMain: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#2f3542',
+    },
+    reportHighlight: {
+        color: '#ff4757',
+        fontSize: 22,
+    },
+    reportSub: {
+        fontSize: 12,
+        color: '#747d8c',
+        marginTop: 2,
+    },
+    alertSection: {
         backgroundColor: '#fff0f0',
         padding: 15,
         borderRadius: 10,
@@ -183,7 +307,7 @@ const styles = StyleSheet.create({
     sectionHeader: {
         fontSize: 16,
         fontWeight: 'bold',
-        color: '#d63031',
+        color: '#2f3542',
         marginBottom: 10,
     },
     alertCard: {

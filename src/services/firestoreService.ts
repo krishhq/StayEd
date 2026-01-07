@@ -9,6 +9,7 @@ import {
     getDoc,
     Timestamp,
     orderBy,
+    limit,
     updateDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
@@ -359,3 +360,77 @@ export const updateComplaintStatus = async (
     }
 };
 
+// -- Broadcast Types --
+export interface Broadcast {
+    id?: string;
+    hostelId: string;
+    title: string;
+    message: string;
+    priority: 'normal' | 'emergency';
+    senderId: string;
+    createdAt: Timestamp;
+}
+
+const BROADCASTS_COLLECTION = 'broadcasts';
+
+/**
+ * Create a new Broadcast and return its ID
+ */
+export const createBroadcast = async (data: Omit<Broadcast, 'id' | 'createdAt'>) => {
+    try {
+        const docRef = await addDoc(collection(db, BROADCASTS_COLLECTION), {
+            ...data,
+            createdAt: Timestamp.now()
+        });
+        console.log("Broadcast created with ID:", docRef.id);
+        return docRef.id;
+    } catch (error) {
+        console.error("Error creating broadcast:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get recent broadcasts for a hostel
+ */
+export const getRecentBroadcasts = async (hostelId: string, limitCount: number = 20) => {
+    try {
+        const broadcastsRef = collection(db, BROADCASTS_COLLECTION);
+        const q = query(
+            broadcastsRef,
+            where("hostelId", "==", hostelId),
+            orderBy("createdAt", "desc"),
+            limit(limitCount)
+        );
+
+        try {
+            const querySnapshot = await getDocs(q);
+            const broadcasts: Broadcast[] = [];
+            querySnapshot.forEach((doc) => {
+                broadcasts.push({ id: doc.id, ...doc.data() } as Broadcast);
+            });
+            return broadcasts;
+        } catch (indexError) {
+            console.warn('[firestoreService] Index missing for broadcasts, falling back to client-side sort');
+            const qFallback = query(
+                broadcastsRef,
+                where("hostelId", "==", hostelId)
+            );
+            const querySnapshot = await getDocs(qFallback);
+            const broadcasts: Broadcast[] = [];
+            querySnapshot.forEach((doc) => {
+                broadcasts.push({ id: doc.id, ...doc.data() } as Broadcast);
+            });
+
+            // Client-side sort and limit
+            return broadcasts.sort((a, b) => {
+                const timeA = a.createdAt?.toMillis() || 0;
+                const timeB = b.createdAt?.toMillis() || 0;
+                return timeB - timeA;
+            }).slice(0, limitCount);
+        }
+    } catch (error) {
+        console.error("Error fetching broadcasts:", error);
+        throw error;
+    }
+};

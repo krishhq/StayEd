@@ -3,6 +3,7 @@ import { User, onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/a
 import { auth, db } from '../config/firebaseConfig';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { registerForPushNotificationsAsync } from '../utils/notificationUtils';
+import { getUserByPhone } from '../services/firestoreService';
 
 // Define User Roles
 export type UserRole = 'resident' | 'admin' | 'guardian' | null;
@@ -44,9 +45,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [hostelData, setHostelData] = useState<HostelData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
+    // Request Tracking to prevent race conditions
+    const fetchIdRef = React.useRef(0);
+
     const fetchUserData = async (uid: string, manualPhone?: string) => {
+        const currentFetchId = ++fetchIdRef.current;
         try {
-            console.log(`[AuthContext] Fetching data for UID: ${uid}`);
+            console.log(`[AuthContext] [#${currentFetchId}] Fetching data for UID: ${uid} (manualPhone: ${manualPhone || 'none'})`);
             const userDocRef = doc(db, 'users', uid);
             let userDoc = await getDoc(userDocRef);
 
@@ -55,15 +60,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             const phoneToSearch = manualPhone || auth.currentUser?.phoneNumber;
 
             if (!userDoc.exists() && phoneToSearch) {
-                console.log(`[AuthContext] UID doc missing, searching by phone: ${phoneToSearch}`);
-                const usersRef = collection(db, 'users');
-                const q = query(usersRef, where("phone", "==", phoneToSearch));
-                const querySnapshot = await getDocs(q);
+                console.log(`[AuthContext] [#${currentFetchId}] UID doc missing, searching by phone: ${phoneToSearch}`);
+                const placeholderData = await getUserByPhone(phoneToSearch);
 
-                if (!querySnapshot.empty) {
-                    const placeholderDoc = querySnapshot.docs[0];
-                    const placeholderData = placeholderDoc.data();
-                    console.log(`[AuthContext] Found placeholder doc: ${placeholderDoc.id}, migrating to UID: ${uid}`);
+                if (placeholderData) {
+                    console.log(`[AuthContext] [#${currentFetchId}] Found placeholder doc: ${placeholderData.id}, migrating to UID: ${uid}`);
 
                     // 1. Create new doc with real UID
                     await setDoc(userDocRef, {
@@ -73,9 +74,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     });
 
                     // 2. Delete old placeholder doc (if it's different from UID)
-                    if (placeholderDoc.id !== uid) {
+                    if (placeholderData.id !== uid) {
                         try {
-                            await deleteDoc(doc(db, 'users', placeholderDoc.id));
+                            await deleteDoc(doc(db, 'users', placeholderData.id));
                         } catch (e) {
                             console.log("[AuthContext] Could not delete placeholder (maybe permission?), continuing...");
                         }
@@ -88,6 +89,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
             if (userDoc.exists()) {
                 const data = userDoc.data();
+
+                // Check if this fetch is still current
+                if (currentFetchId !== fetchIdRef.current) {
+                    console.log(`[AuthContext] [#${currentFetchId}] Fetch superseded, ignoring result.`);
+                    return;
+                }
+
                 setUserData(data);
 
                 setUserRole(data.role as UserRole);
@@ -121,7 +129,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 });
                 console.log(`[AuthContext] User data loaded successfully:`, data);
             } else {
-                console.warn(`[AuthContext] No Firestore document found for UID: ${uid}`);
+                console.warn(`[AuthContext] [#${currentFetchId}] No Firestore document found for UID: ${uid}`);
+
+                // Check if this fetch is still current
+                if (currentFetchId !== fetchIdRef.current) {
+                    console.log(`[AuthContext] [#${currentFetchId}] Fetch superseded, ignoring reset.`);
+                    return;
+                }
+
                 setUserData(null);
                 setUserRole(null);
                 setHostelId(null);
@@ -131,12 +146,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
         } catch (error) {
             console.error("[AuthContext] Error in fetchUserData:", error);
-            setUserData(null);
-            setUserRole(null);
-            setHostelId(null);
-            setResidentId(null);
-            setLinkedResidentId(null);
-            setHostelData(null);
+            // Check if this fetch is still current
+            if (currentFetchId === fetchIdRef.current) {
+                setUserData(null);
+                setUserRole(null);
+                setHostelId(null);
+                setResidentId(null);
+                setLinkedResidentId(null);
+                setHostelData(null);
+            }
+        } finally {
+            if (currentFetchId === fetchIdRef.current) {
+                setIsLoading(false);
+            }
         }
     };
 
@@ -154,9 +176,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 setResidentId(null);
                 setLinkedResidentId(null);
                 setHostelData(null);
+                setIsLoading(false);
             }
-            setIsLoading(false);
-            console.log(`[AuthContext] Loading complete. Role: ${userRole}, Hostel: ${hostelId}`);
+            console.log(`[AuthContext] Auth change handled. Current fetchId: ${fetchIdRef.current}`);
         });
 
         return unsubscribe;

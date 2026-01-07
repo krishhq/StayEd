@@ -193,19 +193,21 @@ export default function LoginScreen({ navigation }: any) {
                             console.log(`[LoginScreen] Dev Mode attempt. Current Auth User: ${auth.currentUser?.uid || 'None'}`);
                             console.log(`[LoginScreen] Querying for phone: ${formattedPhone}`);
 
-                            // Lookup user by phone
+                            // 1. Sign in anonymously FIRST to be authenticated for the lookup
+                            const userCredential = await signInAnonymously(auth);
+                            const uid = userCredential.user.uid;
+
+                            // 2. NOW authenticated, lookup user by phone
                             const userProfile = await getUserByPhone(formattedPhone);
                             if (!userProfile) {
                                 console.warn(`[LoginScreen] No userProfile found for ${formattedPhone}`);
                                 Alert.alert("Error", "No user found with this phone number. Please register first.");
+                                // Logout if we shouldn't be here
+                                await auth.signOut();
                                 setLoading(false);
                                 return;
                             }
                             console.log(`[LoginScreen] Found profile for ${userProfile.role}: ${userProfile.name}`);
-
-                            // Sign in anonymously
-                            const userCredential = await signInAnonymously(auth);
-                            const uid = userCredential.user.uid;
 
                             // Use AuthContext to perform migration and refresh state
                             await refreshUserData(uid, formattedPhone);

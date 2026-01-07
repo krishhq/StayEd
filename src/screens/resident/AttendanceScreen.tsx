@@ -21,7 +21,7 @@ interface EntryExitLog {
 }
 
 export default function AttendanceScreen() {
-    const { user, hostelData } = useAuth();
+    const { user, hostelId, residentId, hostelData } = useAuth();
     const { colors } = useTheme();
     const [location, setLocation] = useState<Location.LocationObject | null>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -161,9 +161,11 @@ export default function AttendanceScreen() {
 
         // 5. Save to Firestore
         try {
-            if (user) {
+            if (user && hostelId) {
                 await addDoc(collection(db, 'attendance'), {
                     userId: user.uid,
+                    residentId: residentId,
+                    hostelId: hostelId,
                     timestamp: serverTimestamp(),
                     latitude: locationData.location.coords.latitude,
                     longitude: locationData.location.coords.longitude,
@@ -193,9 +195,11 @@ export default function AttendanceScreen() {
 
         // 2. Save to Firestore (without location)
         try {
-            if (user) {
+            if (user && hostelId) {
                 await addDoc(collection(db, 'entry_exit_logs'), {
                     userId: user.uid,
+                    residentId: residentId,
+                    hostelId: hostelId,
                     type: type,
                     timestamp: serverTimestamp(),
                 });

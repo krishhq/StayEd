@@ -7,7 +7,7 @@ import { sendBulkNotifications } from '../../utils/notificationUtils';
 import { Switch } from 'react-native';
 
 export default function ResidentForumScreen() {
-    const { user, userRole } = useAuth();
+    const { user, userRole, hostelId } = useAuth();
     const [messages, setMessages] = useState<any[]>([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(true);
@@ -15,55 +15,118 @@ export default function ResidentForumScreen() {
     const flatListRef = useRef<FlatList>(null);
 
     useEffect(() => {
-        // Real-time listener
-        const q = query(collection(db, 'forum_posts'), orderBy('createdAt', 'asc'));
+        if (!hostelId) return;
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedMsgs: any[] = [];
-            snapshot.forEach((doc) => {
-                fetchedMsgs.push({ id: doc.id, ...doc.data() });
+        let unsubscribeOuter: () => void;
+
+        const startListener = (useOrderBy: boolean) => {
+            let q;
+            if (userRole === 'admin') {
+                q = useOrderBy ? query(
+                    collection(db, 'forum_posts'),
+                    where('hostelId', '==', hostelId),
+                    where('postType', '==', 'admin_broadcast'),
+                    orderBy('createdAt', 'asc')
+                ) : query(
+                    collection(db, 'forum_posts'),
+                    where('hostelId', '==', hostelId),
+                    where('postType', '==', 'admin_broadcast')
+                );
+            } else {
+                q = useOrderBy ? query(
+                    collection(db, 'forum_posts'),
+                    where('hostelId', '==', hostelId),
+                    orderBy('createdAt', 'asc')
+                ) : query(
+                    collection(db, 'forum_posts'),
+                    where('hostelId', '==', hostelId)
+                );
+            }
+
+            return onSnapshot(q, (snapshot) => {
+                const fetchedMsgs: any[] = [];
+                snapshot.forEach((doc) => {
+                    fetchedMsgs.push({ id: doc.id, ...doc.data() });
+                });
+
+                if (!useOrderBy) {
+                    // Manual sort if index missing
+                    fetchedMsgs.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0));
+                }
+
+                setMessages(fetchedMsgs);
+                setLoading(false);
+                // Scroll to bottom
+                setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+            }, (error) => {
+                if (useOrderBy && (error.code === 'failed-precondition' || error.message.includes('index'))) {
+                    console.warn('[ResidentForum] Index missing, falling back to client-side sort');
+                    unsubscribeOuter?.();
+                    unsubscribeOuter = startListener(false);
+                } else {
+                    console.error('[ResidentForum] Listener error:', error);
+                }
             });
-            setMessages(fetchedMsgs);
-            setLoading(false);
-            // Scroll to bottom on new message
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-        });
+        };
 
-        return () => unsubscribe();
-    }, []);
+        unsubscribeOuter = startListener(true);
+        return () => unsubscribeOuter?.();
+    }, [hostelId, userRole]);
 
     const sendMessage = async () => {
         if (inputText.trim().length === 0) return;
 
         try {
+            const postType = userRole === 'admin' ? 'admin_broadcast' : 'resident_msg';
             const messageData = {
                 text: inputText,
                 userId: user?.uid || 'anonymous',
-                userName: userRole === 'admin' ? 'Admin' : 'Resident',
+                userName: userRole === 'admin' ? 'Admin' : (user?.displayName || 'Resident'),
+                hostelId: hostelId,
+                postType: postType, // Explicitly label the post type
                 createdAt: serverTimestamp(),
-                notifyAll: notifyAll
+                notifyAll: userRole === 'admin' // Force notifyAll for Admin broadcasts
             };
 
             await addDoc(collection(db, 'forum_posts'), messageData);
 
-            if (notifyAll) {
-                // Fetch all users with push tokens
-                const usersSnap = await getDocs(query(collection(db, 'users'), where('pushToken', '!=', null)));
-                const tokens: string[] = [];
-                usersSnap.forEach(doc => {
-                    const data = doc.data();
-                    if (data.pushToken && doc.id !== user?.uid) {
-                        tokens.push(data.pushToken);
+            if (messageData.notifyAll && hostelId) {
+                try {
+                    let usersSnap;
+                    try {
+                        const q = query(
+                            collection(db, 'users'),
+                            where('hostelId', '==', hostelId),
+                            where('pushToken', '!=', null)
+                        );
+                        usersSnap = await getDocs(q);
+                    } catch (indexError) {
+                        console.warn('[ResidentForum] Index missing for push notifications, falling back to manual filter');
+                        const qFallback = query(
+                            collection(db, 'users'),
+                            where('hostelId', '==', hostelId)
+                        );
+                        usersSnap = await getDocs(qFallback);
                     }
-                });
 
-                if (tokens.length > 0) {
-                    await sendBulkNotifications(
-                        tokens,
-                        'New Important Forum Post',
-                        `${messageData.userName}: ${messageData.text.substring(0, 50)}${messageData.text.length > 50 ? '...' : ''}`,
-                        { type: 'forum', messageId: 'bulk' }
-                    );
+                    const tokens: string[] = [];
+                    usersSnap.forEach(doc => {
+                        const data = doc.data();
+                        if (data.pushToken && doc.id !== user?.uid) {
+                            tokens.push(data.pushToken);
+                        }
+                    });
+
+                    if (tokens.length > 0) {
+                        await sendBulkNotifications(
+                            tokens,
+                            'New Important Forum Post',
+                            `${messageData.userName}: ${messageData.text.substring(0, 50)}${messageData.text.length > 50 ? '...' : ''}`,
+                            { type: 'forum', messageId: 'bulk' }
+                        );
+                    }
+                } catch (notifErr) {
+                    console.error('[ResidentForum] Notification error:', notifErr);
                 }
             }
 
@@ -76,11 +139,33 @@ export default function ResidentForumScreen() {
 
     const renderItem = ({ item }: any) => {
         const isMe = item.userId === user?.uid;
+        const isAdminBroadcast = item.postType === 'admin_broadcast';
+        const isEmergency = item.priority === 'emergency';
+
         return (
-            <View style={[styles.bubbleContainer, isMe ? styles.rightContainer : styles.leftContainer]}>
-                <View style={[styles.bubble, isMe ? styles.rightBubble : styles.leftBubble]}>
-                    {!isMe && <Text style={styles.senderName}>{item.userName}</Text>}
-                    <Text style={[styles.messageText, isMe ? styles.rightText : styles.leftText]}>{item.text}</Text>
+            <View style={[
+                styles.bubbleContainer,
+                isMe ? styles.rightContainer : styles.leftContainer,
+                isAdminBroadcast && styles.broadcastContainer
+            ]}>
+                <View style={[
+                    styles.bubble,
+                    isMe ? styles.rightBubble : styles.leftBubble,
+                    isAdminBroadcast && (isEmergency ? styles.emergencyBubble : styles.noticeBubble)
+                ]}>
+                    <View style={styles.bubbleHeader}>
+                        <Text style={[
+                            styles.senderName,
+                            (isMe || isAdminBroadcast) && { color: 'rgba(255,255,255,0.7)' }
+                        ]}>
+                            {isAdminBroadcast ? (isEmergency ? '🚨 EMERGENCY' : '📢 NOTICE') : item.userName}
+                        </Text>
+                        {isAdminBroadcast && <Text style={styles.broadcastTag}>Official</Text>}
+                    </View>
+                    <Text style={[
+                        styles.messageText,
+                        (isMe || isAdminBroadcast) ? styles.rightText : styles.leftText
+                    ]}>{item.text}</Text>
                 </View>
             </View>
         );
@@ -110,7 +195,11 @@ export default function ResidentForumScreen() {
             )}
 
             <View style={styles.inputWrapper}>
-                {userRole === 'admin' || true ? ( // Allowing everyone for demo, can restrict to admin if needed
+                {userRole === 'admin' ? (
+                    <View style={styles.adminNote}>
+                        <Text style={styles.adminNoteText}>📢 You are broadcasting to all residents.</Text>
+                    </View>
+                ) : (
                     <View style={styles.notifyRow}>
                         <Text style={styles.notifyLabel}>📣 Notify Everyone</Text>
                         <Switch
@@ -120,7 +209,7 @@ export default function ResidentForumScreen() {
                             thumbColor={notifyAll ? "#0084ff" : "#f4f3f4"}
                         />
                     </View>
-                ) : null}
+                )}
                 <View style={styles.inputContainer}>
                     <TextInput
                         style={styles.input}
@@ -247,5 +336,51 @@ const styles = StyleSheet.create({
     sendText: {
         color: 'white',
         fontSize: 18,
+    },
+    adminNote: {
+        padding: 5,
+        backgroundColor: '#fff3cd',
+        alignItems: 'center',
+    },
+    adminNoteText: {
+        fontSize: 10,
+        color: '#856404',
+        fontWeight: 'bold',
+    },
+    broadcastContainer: {
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginVertical: 10,
+    },
+    noticeBubble: {
+        backgroundColor: '#0984e3',
+        width: '90%',
+        borderRadius: 12,
+        borderBottomLeftRadius: 12,
+        borderBottomRightRadius: 12,
+    },
+    emergencyBubble: {
+        backgroundColor: '#d63031',
+        width: '90%',
+        borderRadius: 12,
+        borderBottomLeftRadius: 12,
+        borderBottomRightRadius: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.3)',
+    },
+    bubbleHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4,
+    },
+    broadcastTag: {
+        fontSize: 8,
+        color: 'white',
+        backgroundColor: 'rgba(0,0,0,0.2)',
+        paddingHorizontal: 5,
+        paddingVertical: 2,
+        borderRadius: 4,
+        fontWeight: 'bold',
     }
 });

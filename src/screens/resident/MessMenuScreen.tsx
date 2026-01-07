@@ -53,7 +53,7 @@ const MOCK_MENU = {
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export default function MessMenuScreen() {
-    const { user } = useAuth();
+    const { user, hostelId } = useAuth();
     const [selectedDay, setSelectedDay] = useState('Monday');
     const [loading, setLoading] = useState(false);
 
@@ -66,43 +66,57 @@ export default function MessMenuScreen() {
         const mealId = `${selectedDay}-${mealType}`;
 
         try {
+            if (!user || !hostelId) return;
             // 1. Record the Skip
             await addDoc(collection(db, 'meal_skips'), {
                 userId: user.uid,
+                hostelId: hostelId, // Add hostelId
                 mealId,
-                date: new Date().toISOString().split('T')[0], // Today's date loose check
+                date: new Date().toISOString().split('T')[0],
                 timestamp: serverTimestamp()
             });
 
             Alert.alert('Success', `You have skipped ${mealType} for ${selectedDay}.`);
 
-            // 2. Check Threshold Logic
-            // Fetch Total Residents
-            const residentsSnap = await getCountFromServer(collection(db, 'residents'));
+            // 2. Check Threshold Logic (Hostel Specific)
+            // Fetch Total Residents in THIS hostel
+            const residentsSnap = await getCountFromServer(
+                query(collection(db, 'residents'), where('hostelId', '==', hostelId))
+            );
             const totalResidents = residentsSnap.data().count;
 
-            // Fetch Total Skips for this MealId
-            const skipQ = query(collection(db, 'meal_skips'), where('mealId', '==', mealId));
+            // Fetch Total Skips for this MealId in THIS hostel
+            const skipQ = query(
+                collection(db, 'meal_skips'),
+                where('mealId', '==', mealId),
+                where('hostelId', '==', hostelId),
+                where('date', '==', new Date().toISOString().split('T')[0]) // Only query today's skips
+            );
             const skipSnap = await getCountFromServer(skipQ);
             const totalSkips = skipSnap.data().count;
 
             // Calculate Percentage
-            // Avoid division by zero
             if (totalResidents > 0) {
                 const skipPercentage = (totalSkips / totalResidents) * 100;
 
                 if (skipPercentage > 10) {
-                    // 3. Alert Admin if > 10%
+                    // 3. Alert Admin of THIS hostel if > 10%
                     await addDoc(collection(db, 'mess_alerts'), {
                         title: 'High Skip Rate Alert',
                         message: `${skipPercentage.toFixed(1)}% of residents are skipping ${mealId}. Please inform mess.`,
                         mealId,
+                        hostelId: hostelId, // Link to hostel
                         createdAt: serverTimestamp(),
                         isRead: false
                     });
 
-                    // 4. Send Push Notification to all Admins
-                    const adminsSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'admin'), where('pushToken', '!=', null)));
+                    // 4. Send Push Notification to Admins of THIS hostel
+                    const adminsSnap = await getDocs(query(
+                        collection(db, 'users'),
+                        where('hostelId', '==', hostelId),
+                        where('role', '==', 'admin'),
+                        where('pushToken', '!=', null)
+                    ));
                     const adminTokens: string[] = [];
                     adminsSnap.forEach(doc => {
                         const data = doc.data();

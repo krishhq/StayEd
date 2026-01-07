@@ -2,10 +2,59 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { db } from '../../config/firebaseConfig';
+import { Broadcast } from '../../services/firestoreService';
 
 export default function ResidentDashboard({ navigation }: any) {
-    const { signOut } = useAuth();
+    const { signOut, hostelId } = useAuth();
     const { colors, theme, toggleTheme } = useTheme();
+    const [latestBroadcast, setLatestBroadcast] = React.useState<Broadcast | null>(null);
+
+    React.useEffect(() => {
+        if (!hostelId) return;
+
+        let unsubscribeOuter: () => void;
+
+        const startListener = (useOrderBy: boolean) => {
+            const broadcastsRef = collection(db, 'broadcasts');
+            const q = useOrderBy ? query(
+                broadcastsRef,
+                where('hostelId', '==', hostelId),
+                orderBy('createdAt', 'desc'),
+                limit(1)
+            ) : query(
+                broadcastsRef,
+                where('hostelId', '==', hostelId)
+            );
+
+            return onSnapshot(q, (snapshot) => {
+                if (snapshot.empty) {
+                    setLatestBroadcast(null);
+                    return;
+                }
+
+                const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Broadcast));
+                if (!useOrderBy) {
+                    // Manual sort if index missing
+                    docs.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+                }
+                setLatestBroadcast(docs[0]);
+            }, (error) => {
+                // If index missing, fallback to non-ordered listener
+                if (useOrderBy && error.code === 'failed-precondition') {
+                    console.warn('[ResidentDashboard] Broadcast index missing, falling back to client-side sort');
+                    unsubscribeOuter?.();
+                    unsubscribeOuter = startListener(false);
+                } else {
+                    console.error('[ResidentDashboard] Broadcast listener error:', error);
+                }
+            });
+        };
+
+        unsubscribeOuter = startListener(true);
+        return () => unsubscribeOuter?.();
+    }, [hostelId]);
 
     const dynamicStyles = {
         container: { backgroundColor: colors.background },
@@ -34,6 +83,27 @@ export default function ResidentDashboard({ navigation }: any) {
                     </View>
                 </View>
             </View>
+
+            {/* Broadcast Banner */}
+            {latestBroadcast && (
+                <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={() => navigation.navigate('BroadcastHistory')}
+                    style={[
+                        styles.broadcastBanner,
+                        latestBroadcast.priority === 'emergency' ? styles.emergencyBanner : styles.normalBanner
+                    ]}
+                >
+                    <View style={styles.broadcastHeader}>
+                        <Text style={styles.broadcastType}>
+                            {latestBroadcast.priority === 'emergency' ? '🚨 EMERGENCY' : '📢 LATEST NEWS'}
+                        </Text>
+                        <Text style={styles.broadcastTime}>View History</Text>
+                    </View>
+                    <Text style={styles.broadcastTitle}>{latestBroadcast.title}</Text>
+                    <Text style={styles.broadcastMsg} numberOfLines={2}>{latestBroadcast.message}</Text>
+                </TouchableOpacity>
+            )}
 
             <View style={styles.grid}>
                 <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Attendance')}>
@@ -136,5 +206,49 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: 'bold',
         fontSize: 16,
+    },
+    broadcastBanner: {
+        padding: 15,
+        borderRadius: 15,
+        marginBottom: 25,
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 5,
+    },
+    normalBanner: {
+        backgroundColor: '#007AFF',
+    },
+    emergencyBanner: {
+        backgroundColor: '#d63031',
+        borderWidth: 2,
+        borderColor: 'rgba(255,255,255,0.3)',
+    },
+    broadcastHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 5,
+    },
+    broadcastType: {
+        color: 'rgba(255,255,255,0.8)',
+        fontSize: 10,
+        fontWeight: 'bold',
+        letterSpacing: 1,
+    },
+    broadcastTime: {
+        color: 'rgba(255,255,255,0.6)',
+        fontSize: 10,
+    },
+    broadcastTitle: {
+        color: 'white',
+        fontSize: 18,
+        fontWeight: 'bold',
+        marginBottom: 5,
+    },
+    broadcastMsg: {
+        color: 'white',
+        fontSize: 14,
+        opacity: 0.9,
     }
 });

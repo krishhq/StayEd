@@ -1,16 +1,47 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert, ScrollView } from 'react-native';
 import { db } from '../../config/firebaseConfig';
-import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
 import { sendPushNotification } from '../../utils/notificationUtils';
 
 export default function LeaveScreen() {
-    const { user } = useAuth();
+    const { user, hostelId, residentId } = useAuth();
     const [reason, setReason] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [loading, setLoading] = useState(false);
+    const [latestLeave, setLatestLeave] = useState<any>(null);
+
+    useEffect(() => {
+        fetchLatestStatus();
+    }, [residentId]);
+
+    const fetchLatestStatus = async () => {
+        if (!residentId) return;
+        try {
+            const q = query(
+                collection(db, 'leaves'),
+                where('residentId', '==', residentId),
+                orderBy('createdAt', 'desc'),
+                limit(1)
+            );
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+                setLatestLeave({ id: snap.docs[0].id, ...snap.docs[0].data() });
+            }
+        } catch (error) {
+            console.warn('[LeaveScreen] Error fetching status:', error);
+            // Fallback: Fetch without orderBy if index missing
+            const qFallback = query(collection(db, 'leaves'), where('residentId', '==', residentId));
+            const snap = await getDocs(qFallback);
+            if (!snap.empty) {
+                const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                docs.sort((a: any, b: any) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+                setLatestLeave(docs[0]);
+            }
+        }
+    };
 
     const submitLeave = async () => {
         if (!reason || !startDate || !endDate) {
@@ -20,10 +51,12 @@ export default function LeaveScreen() {
 
         setLoading(true);
         try {
-            if (user) {
+            if (user && hostelId) {
                 // 1. Submit leave request
                 const leaveData = {
                     userId: user.uid,
+                    residentId: residentId,
+                    hostelId: hostelId,
                     reason,
                     startDate,
                     endDate,
@@ -34,16 +67,18 @@ export default function LeaveScreen() {
                 await addDoc(collection(db, 'leaves'), leaveData);
 
                 // 2. Notify Guardian
-                // Fetch resident's data to get guardianPhone
-                const residentsSnap = await getDocs(query(collection(db, 'residents'), where('phone', '==', user.phoneNumber || '')));
-
+                // Fetch resident's data directly using residentId
                 let guardianPhone = '';
                 let residentName = 'A resident';
 
-                if (!residentsSnap.empty) {
-                    const resData = residentsSnap.docs[0].data();
-                    guardianPhone = resData.guardianPhone;
-                    residentName = resData.name;
+                if (residentId) {
+                    const residentDocRef = doc(db, 'residents', residentId);
+                    const residentSnap = await getDoc(residentDocRef);
+                    if (residentSnap.exists()) {
+                        const resData = residentSnap.data();
+                        guardianPhone = resData.guardianPhone;
+                        residentName = resData.name;
+                    }
                 }
 
                 if (guardianPhone) {
@@ -67,6 +102,7 @@ export default function LeaveScreen() {
                 setReason('');
                 setStartDate('');
                 setEndDate('');
+                fetchLatestStatus();
             } else {
                 console.log({ reason, startDate, endDate });
                 Alert.alert('Dev Mode', 'Leave logged to console');
@@ -109,6 +145,45 @@ export default function LeaveScreen() {
             <View style={styles.btnContainer}>
                 <Button title={loading ? "Submitting..." : "Submit Application"} onPress={submitLeave} disabled={loading} />
             </View>
+
+            {latestLeave && (
+                <View style={styles.statusSection}>
+                    <Text style={styles.statusTitle}>Recent Application Status</Text>
+                    <View style={styles.statusBar}>
+                        <View style={[styles.statusStep, (latestLeave.status === 'pending_guardian' || latestLeave.status === 'pending_admin' || latestLeave.status === 'approved') && styles.stepActive]}>
+                            <Text style={styles.stepIcon}>📝</Text>
+                            <Text style={styles.stepLabel}>Applied</Text>
+                        </View>
+                        <View style={styles.stepLine} />
+                        <View style={[styles.statusStep, (latestLeave.status === 'pending_admin' || latestLeave.status === 'approved') && styles.stepActive]}>
+                            <Text style={styles.stepIcon}>🛡️</Text>
+                            <Text style={styles.stepLabel}>Guardian</Text>
+                        </View>
+                        <View style={styles.stepLine} />
+                        <View style={[styles.statusStep, latestLeave.status === 'approved' && styles.stepActive]}>
+                            <Text style={styles.stepIcon}>🏢</Text>
+                            <Text style={styles.stepLabel}>Admin</Text>
+                        </View>
+                    </View>
+
+                    <View style={[
+                        styles.statusBadge,
+                        { backgroundColor: latestLeave.status === 'approved' ? '#27ae60' : latestLeave.status === 'rejected' ? '#e74c3c' : '#f39c12' }
+                    ]}>
+                        <Text style={styles.statusBadgeText}>
+                            {latestLeave.status === 'pending_guardian' && '🕒 Waiting for Guardian'}
+                            {latestLeave.status === 'pending_admin' && '⏳ Approved by Guardian - Waiting for Admin'}
+                            {latestLeave.status === 'approved' && '✅ Leave Finalized'}
+                            {latestLeave.status === 'rejected' && '❌ Leave Rejected'}
+                        </Text>
+                    </View>
+
+                    <View style={styles.leaveInfo}>
+                        <Text style={styles.infoRow}>Reason: <Text style={{ fontWeight: 'normal' }}>{latestLeave.reason}</Text></Text>
+                        <Text style={styles.infoRow}>Dates: <Text style={{ fontWeight: 'normal' }}>{latestLeave.startDate} - {latestLeave.endDate}</Text></Text>
+                    </View>
+                </View>
+            )}
         </ScrollView>
     );
 }
@@ -136,5 +211,75 @@ const styles = StyleSheet.create({
     },
     btnContainer: {
         marginTop: 30,
+        marginBottom: 30,
+    },
+    statusSection: {
+        marginTop: 10,
+        backgroundColor: 'white',
+        padding: 20,
+        borderRadius: 15,
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        marginBottom: 40,
+    },
+    statusTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        marginBottom: 20,
+        color: '#2c3e50',
+    },
+    statusBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 20,
+    },
+    statusStep: {
+        alignItems: 'center',
+        opacity: 0.3,
+    },
+    stepActive: {
+        opacity: 1,
+    },
+    stepIcon: {
+        fontSize: 20,
+        marginBottom: 4,
+    },
+    stepLabel: {
+        fontSize: 10,
+        fontWeight: 'bold',
+        color: '#34495e',
+    },
+    stepLine: {
+        flex: 1,
+        height: 2,
+        backgroundColor: '#eee',
+        marginHorizontal: 10,
+        marginTop: -15,
+    },
+    statusBadge: {
+        padding: 12,
+        borderRadius: 8,
+        alignItems: 'center',
+        marginBottom: 15,
+    },
+    statusBadgeText: {
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: 13,
+    },
+    leaveInfo: {
+        borderTopWidth: 1,
+        borderTopColor: '#f0f0f0',
+        paddingTop: 15,
+    },
+    infoRow: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#7f8c8d',
+        marginBottom: 5,
     }
 });

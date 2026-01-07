@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { db } from '../../config/firebaseConfig';
-import { collection, query, where, orderBy, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { useAuth } from '../../context/AuthContext';
+import { sendPushNotification } from '../../utils/notificationUtils';
 
 export default function AdminLeaveScreen() {
+    const { hostelId } = useAuth();
     const [leaves, setLeaves] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'pending' | 'all'>('pending');
@@ -11,13 +14,22 @@ export default function AdminLeaveScreen() {
     const fetchLeaves = async () => {
         setLoading(true);
         try {
+            if (!hostelId) return;
             let q;
             if (filter === 'pending') {
                 // Admin only sees what Guardian has approved (pending_admin)
-                q = query(collection(db, 'leaves'), where('status', '==', 'pending_admin'));
+                q = query(
+                    collection(db, 'leaves'),
+                    where('hostelId', '==', hostelId),
+                    where('status', '==', 'pending_admin')
+                );
             } else {
                 // View history
-                q = query(collection(db, 'leaves'), orderBy('createdAt', 'desc'));
+                q = query(
+                    collection(db, 'leaves'),
+                    where('hostelId', '==', hostelId),
+                    orderBy('createdAt', 'desc')
+                );
             }
 
             const querySnapshot = await getDocs(q);
@@ -42,8 +54,37 @@ export default function AdminLeaveScreen() {
     const handleAction = async (id: string, action: 'approve' | 'reject') => {
         try {
             const docRef = doc(db, 'leaves', id);
+
+            // Fetch leaf data to get the resident's UID
+            const leafSnap = await getDoc(docRef);
+            if (!leafSnap.exists()) {
+                Alert.alert('Error', 'Leave record not found');
+                return;
+            }
+            const leafData = leafSnap.data();
+            const residentUid = leafData.userId; // This is the UID for the resident
+
             const newStatus = action === 'approve' ? 'approved' : 'rejected';
             await updateDoc(docRef, { status: newStatus });
+
+            // Send notification to Resident
+            if (residentUid) {
+                const userDocRef = doc(db, 'users', residentUid);
+                const userSnap = await getDoc(userDocRef);
+                if (userSnap.exists()) {
+                    const residentData = userSnap.data();
+                    const token = residentData.pushToken;
+                    if (token) {
+                        await sendPushNotification(
+                            token,
+                            `Leave Application ${action === 'approve' ? 'Approved' : 'Rejected'}`,
+                            `Admin has ${action}d your leave request from ${leafData.startDate} to ${leafData.endDate}.`,
+                            { type: 'leave_status' }
+                        );
+                    }
+                }
+            }
+
             Alert.alert('Success', `Leave ${action}d`);
             fetchLeaves();
         } catch (error: any) {
