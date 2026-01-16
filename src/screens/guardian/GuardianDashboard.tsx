@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../config/firebaseConfig';
 import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
+import LoadingScreen from '../../components/LoadingScreen';
 
 interface EntryExitLog {
     id: string;
@@ -14,6 +17,7 @@ interface EntryExitLog {
 
 export default function GuardianDashboard({ navigation }: any) {
     const { signOut, user, linkedResidentId } = useAuth();
+    const { colors, theme, toggleTheme } = useTheme();
     const [wardName, setWardName] = useState('Loading...');
     const [wardStatus, setWardStatus] = useState<'In Hostel' | 'Left Campus' | 'Unknown'>('Unknown');
     const [lastLogTime, setLastLogTime] = useState<string | null>(null);
@@ -133,99 +137,133 @@ export default function GuardianDashboard({ navigation }: any) {
         });
     };
 
+    if (loading) {
+        return <LoadingScreen message="Loading ward information..." />;
+    }
+
     return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <Text style={styles.title}>Guardian Portal</Text>
-
-            <View style={styles.wardCard}>
-                <Text style={styles.wardLabel}>Your Ward</Text>
-                <Text style={styles.wardName}>{wardName}</Text>
-                <View style={[
-                    styles.wardStatusBadge,
-                    { backgroundColor: wardStatus === 'In Hostel' ? 'rgba(255,255,255,0.2)' : '#e67e22' }
-                ]}>
-                    <Text style={styles.wardStatusText}>
-                        {wardStatus === 'In Hostel' ? '📍 In Hostel' : `🚶 Left Campus (${lastLogTime || 'Unknown'})`}
-                    </Text>
+        <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
+                        <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
+                        <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">Guardian Portal</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                        <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
+                            <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.iconBtn}>
+                            <Text style={{ fontSize: 24 }}>👤</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
-            </View>
 
-            <Text style={styles.sectionTitle}>Overview</Text>
-
-            <View style={styles.statsContainer}>
-                <View style={styles.statCard}>
-                    <Text style={styles.statNumber}>{pendingLeaves}</Text>
-                    <Text style={styles.statLabel}>Pending Leaves</Text>
+                <View style={styles.wardCard}>
+                    <Text style={styles.wardLabel}>Your Ward</Text>
+                    <Text style={styles.wardName}>{wardName}</Text>
+                    <View style={[
+                        styles.wardStatusBadge,
+                        { backgroundColor: wardStatus === 'In Hostel' ? 'rgba(255,255,255,0.2)' : '#e67e22' }
+                    ]}>
+                        <Text style={styles.wardStatusText}>
+                            {wardStatus === 'In Hostel' ? '📍 In Hostel' : `🚶 Left Campus (${lastLogTime || 'Unknown'})`}
+                        </Text>
+                    </View>
                 </View>
-                <View style={styles.statCard}>
-                    <Text style={styles.statNumber}>--</Text>
-                    <Text style={styles.statLabel}>Attendance %</Text>
-                </View>
-            </View>
 
-            {/* Entry/Exit Logs Section */}
-            <Text style={styles.sectionTitle}>Entry/Exit Logs</Text>
-            {loading ? (
-                <ActivityIndicator size="large" color="#27ae60" />
-            ) : entryExitLogs.length > 0 ? (
-                <View style={styles.logsCard}>
-                    {entryExitLogs.map((log) => (
-                        <View key={log.id} style={styles.logItem}>
-                            <View style={[
-                                styles.logBadge,
-                                { backgroundColor: log.type === 'entry' ? '#4CAF50' : '#FF5252' }
-                            ]}>
-                                <Text style={styles.logBadgeText}>
-                                    {log.type === 'entry' ? '➡️ Entry' : '⬅️ Exit'}
-                                </Text>
+                <Text style={styles.sectionTitle}>Overview</Text>
+
+                <View style={styles.statsContainer}>
+                    <View style={styles.statCard}>
+                        <Text style={styles.statNumber}>{pendingLeaves}</Text>
+                        <Text style={styles.statLabel}>Pending Leaves</Text>
+                    </View>
+                    <View style={styles.statCard}>
+                        <Text style={styles.statNumber}>--</Text>
+                        <Text style={styles.statLabel}>Attendance %</Text>
+                    </View>
+                </View>
+
+                {/* Entry/Exit Logs Section */}
+                <Text style={styles.sectionTitle}>Entry/Exit Logs</Text>
+                {loading ? (
+                    <ActivityIndicator size="large" color="#27ae60" />
+                ) : entryExitLogs.length > 0 ? (
+                    <View style={styles.logsCard}>
+                        {entryExitLogs.map((log) => (
+                            <View key={log.id} style={styles.logItem}>
+                                <View style={[
+                                    styles.logBadge,
+                                    { backgroundColor: log.type === 'entry' ? '#4CAF50' : '#FF5252' }
+                                ]}>
+                                    <Text style={styles.logBadgeText}>
+                                        {log.type === 'entry' ? '➡️ Entry' : '⬅️ Exit'}
+                                    </Text>
+                                </View>
+                                <View style={styles.logDetails}>
+                                    <Text style={styles.logTime}>{formatTimestamp(log.timestamp)}</Text>
+                                    {log.distance && (
+                                        <Text style={styles.logDistance}>{log.distance.toFixed(0)}m from campus</Text>
+                                    )}
+                                </View>
                             </View>
-                            <View style={styles.logDetails}>
-                                <Text style={styles.logTime}>{formatTimestamp(log.timestamp)}</Text>
-                                {log.distance && (
-                                    <Text style={styles.logDistance}>{log.distance.toFixed(0)}m from campus</Text>
-                                )}
-                            </View>
-                        </View>
-                    ))}
+                        ))}
+                    </View>
+                ) : (
+                    <View style={styles.emptyState}>
+                        <Text style={styles.emptyText}>No entry/exit logs yet</Text>
+                    </View>
+                )}
+
+                <Text style={styles.sectionTitle}>Actions</Text>
+
+                <View style={styles.grid}>
+                    <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('GuardianLeave')}>
+                        <Text style={styles.icon}>📝</Text>
+                        <Text style={styles.cardText}>Approve Leaves</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.card} onPress={() => Alert.alert('Coming Soon', 'Attendance History View')}>
+                        <Text style={styles.icon}>🕒</Text>
+                        <Text style={styles.cardText}>View Attendance Logs</Text>
+                    </TouchableOpacity>
                 </View>
-            ) : (
-                <View style={styles.emptyState}>
-                    <Text style={styles.emptyText}>No entry/exit logs yet</Text>
-                </View>
-            )}
 
-            <Text style={styles.sectionTitle}>Actions</Text>
-
-            <View style={styles.grid}>
-                <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('GuardianLeave')}>
-                    <Text style={styles.icon}>📝</Text>
-                    <Text style={styles.cardText}>Approve Leaves</Text>
+                <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
+                    <Text style={styles.logoutText}>Logout</Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity style={styles.card} onPress={() => Alert.alert('Coming Soon', 'Attendance History View')}>
-                    <Text style={styles.icon}>🕒</Text>
-                    <Text style={styles.cardText}>View Attendance Logs</Text>
-                </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-                <Text style={styles.logoutText}>Logout</Text>
-            </TouchableOpacity>
-        </ScrollView>
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
+    safeArea: {
+        flex: 1,
+    },
+    scrollContent: {
         padding: 20,
+    },
+    container: {
         backgroundColor: '#f4f6f8',
         minHeight: '100%',
     },
     title: {
         fontSize: 26,
         fontWeight: 'bold',
-        marginBottom: 20,
         color: '#2c3e50',
+    },
+    logo: {
+        width: 40,
+        height: 40,
+        marginRight: 10,
+        borderRadius: 8,
+    },
+    iconBtn: {
+        backgroundColor: 'rgba(150,150,150,0.1)',
+        padding: 8,
+        borderRadius: 20,
     },
     wardCard: {
         backgroundColor: '#27ae60',

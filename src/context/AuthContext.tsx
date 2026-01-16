@@ -28,6 +28,8 @@ interface AuthContextType {
     linkedResidentId: string | null; // For guardians to link to ward
     hostelData: HostelData | null;
     isLoading: boolean;
+    isNavPaused: boolean;
+    setNavPaused: (paused: boolean) => void;
     signOut: () => Promise<void>;
     simulateLogin: (role: UserRole) => void;
     refreshUserData: (manualUid?: string, manualPhone?: string) => Promise<void>;
@@ -44,6 +46,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [linkedResidentId, setLinkedResidentId] = useState<string | null>(null);
     const [hostelData, setHostelData] = useState<HostelData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [isNavPaused, setNavPaused] = useState(false);
 
     // Request Tracking to prevent race conditions
     const fetchIdRef = React.useRef(0);
@@ -96,6 +99,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     return;
                 }
 
+                console.log(`[AuthContext] [#${currentFetchId}] Document found. Role: ${data.role}, HostelId: ${data.hostelId}`);
+
                 setUserData(data);
 
                 setUserRole(data.role as UserRole);
@@ -118,7 +123,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         console.warn(`[AuthContext] Hostel document NOT FOUND for ID: ${data.hostelId}`);
                     }
                 } else {
-                    console.log("[AuthContext] User has NO hostelId assigned.");
+                    console.log("[AuthContext] User has NO hostelId assigned in Firestore document.");
                 }
 
                 // Register Push Notifications
@@ -127,7 +132,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         updateDoc(userDocRef, { pushToken: token });
                     }
                 });
-                console.log(`[AuthContext] User data loaded successfully:`, data);
+                console.log(`[AuthContext] User data loaded successfully for UID: ${uid}`);
             } else {
                 console.warn(`[AuthContext] [#${currentFetchId}] No Firestore document found for UID: ${uid}`);
 
@@ -244,6 +249,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             linkedResidentId,
             hostelData,
             isLoading,
+            isNavPaused,
+            setNavPaused,
             signOut,
             simulateLogin,
             refreshUserData

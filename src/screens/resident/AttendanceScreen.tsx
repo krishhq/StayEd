@@ -119,15 +119,19 @@ export default function AttendanceScreen() {
         return result.success;
     };
 
-    const handleMarkAttendance = async () => {
-        // 1. Check Time Slot
-        const timeCheck = isWithinTimeSlot();
-        if (!timeCheck.allowed) {
-            Alert.alert(
-                'Outside Time Slot',
-                `Attendance can only be marked during:\n• Morning: 7 AM - 9 AM\n• Evening: 8 PM - 9:30 PM\n\nNext slot: ${timeCheck.nextSlot}`
-            );
-            return;
+    const handleMarkAttendance = async (bypassTime = false) => {
+        // 1. Check Time Slot (Skip if bypassing)
+        if (!bypassTime) {
+            const timeCheck = isWithinTimeSlot();
+            if (!timeCheck.allowed) {
+                Alert.alert(
+                    'Outside Time Slot',
+                    `Attendance can only be marked during:\n• Evening: 8 PM - 9:30 PM\n\nNext slot: ${timeCheck.nextSlot}`
+                );
+                return;
+            }
+        } else {
+            console.log("Dev Bypass: Skipping Time Constraint");
         }
 
         setLoading(true);
@@ -142,13 +146,19 @@ export default function AttendanceScreen() {
 
         // 3. Check if inside campus
         if (!locationData.isInside) {
-            Alert.alert(
-                '⚠️ Outside Campus',
-                `You are ${locationData.distance.toFixed(0)}m away from campus.\n\nPlease return to campus area (within ${GEOFENCE_RADIUS}m) to mark attendance.`,
-                [{ text: 'OK' }]
-            );
-            setLoading(false);
-            return;
+            if (bypassTime) {
+                console.log("Dev Bypass: Ignoring Location Distance Check");
+                // Force isInside to true for the rest of the logic
+                // We keep the actual location data for logging/truth
+            } else {
+                Alert.alert(
+                    '⚠️ Outside Campus',
+                    `You are ${locationData.distance.toFixed(0)}m away from campus.\n\nPlease return to campus area (within ${GEOFENCE_RADIUS}m) to mark attendance.`,
+                    [{ text: 'OK' }]
+                );
+                setLoading(false);
+                return;
+            }
         }
 
         // 4. Verify Biometric
@@ -314,7 +324,7 @@ export default function AttendanceScreen() {
                         <Text style={[styles.sectionTitle, dynamicStyles.text]}>Daily Attendance</Text>
                         <TouchableOpacity
                             style={[styles.attendanceBtn, loading && styles.btnDisabled]}
-                            onPress={handleMarkAttendance}
+                            onPress={() => handleMarkAttendance(false)}
                             disabled={loading}
                         >
                             {loading ? (
@@ -324,10 +334,26 @@ export default function AttendanceScreen() {
                             )}
                         </TouchableOpacity>
 
+                        {/* DEV ONLY BUTTON */}
+                        <TouchableOpacity
+                            style={[styles.devBtn, { marginTop: 10 }]}
+                            onPress={() => {
+                                Alert.alert(
+                                    'Dev Mode',
+                                    'Bypass time constraint and mark attendance?',
+                                    [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        { text: 'Yes, Force Mark', onPress: () => handleMarkAttendance(true) }
+                                    ]
+                                );
+                            }}
+                        >
+                            <Text style={styles.devBtnText}>🛠️ [Dev] Force Attendance</Text>
+                        </TouchableOpacity>
+
                         {/* Time Slot Info */}
-                        <View style={[styles.infoBox, dynamicStyles.card]}>
+                        <View style={[styles.infoBox, dynamicStyles.card, { marginTop: 15 }]}>
                             <Text style={[styles.infoBoxTitle, dynamicStyles.text]}>⏰ Attendance Time Slots</Text>
-                            <Text style={[styles.infoBoxText, dynamicStyles.subText]}>• Morning: 7:00 AM - 9:00 AM</Text>
                             <Text style={[styles.infoBoxText, dynamicStyles.subText]}>• Evening: 8:00 PM - 9:30 PM</Text>
                         </View>
                     </View>
@@ -488,4 +514,18 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         marginTop: 20,
     },
+    devBtn: {
+        backgroundColor: '#607D8B',
+        padding: 12,
+        borderRadius: 8,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#455A64',
+        borderStyle: 'dashed'
+    },
+    devBtnText: {
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: 14
+    }
 });

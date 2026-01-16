@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Image } from 'react-native';
 import { FirebaseRecaptchaVerifierModal, FirebaseRecaptchaBanner } from 'expo-firebase-recaptcha';
 import app, { auth } from '../../config/firebaseConfig'; // Import auth directly
 import { PhoneAuthProvider, signInWithCredential, signInAnonymously } from 'firebase/auth'; // Removed getAuth
@@ -8,10 +8,11 @@ import { db } from '../../config/firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { getUserByPhone } from '../../services/firestoreService';
+import LoadingScreen from '../../components/LoadingScreen';
 
 export default function LoginScreen({ navigation }: any) {
     const { colors } = useTheme();
-    const { refreshUserData } = useAuth();
+    const { refreshUserData, setNavPaused, isNavPaused } = useAuth();
     const [phoneNumber, setPhoneNumber] = useState('+91');
     const [verificationCode, setVerificationCode] = useState('');
     const [verificationId, setVerificationId] = useState<string | null>(null);
@@ -60,6 +61,7 @@ export default function LoginScreen({ navigation }: any) {
                 verificationId!,
                 verificationCode
             );
+            setNavPaused(true); // Pause navigation BEFORE sign-in
             await signInWithCredential(auth, credential);
             // AuthContext handles state change automatically
 
@@ -103,21 +105,29 @@ export default function LoginScreen({ navigation }: any) {
                 // NOTE: In a real app, AuthContext should listen to the user doc.
                 // For now, we manually suggest the role if needed, but context userRole is key.
                 // @ts-ignore
-                Alert.alert("Welcome", `Logged in as ${userProfile.role}`);
+                Alert.alert(
+                    "Welcome",
+                    `Logged in as ${userProfile.role}`,
+                    [{ text: "OK", onPress: () => setNavPaused(false) }]
+                );
             } else {
                 Alert.alert("Error", "User not found. Please register.");
-                // Optionally sign out if user not found in DB
+                await auth.signOut(); // Ensure clean slate
+                setLoading(false);
             }
         } catch (error: any) {
             console.error(error);
             Alert.alert("Error", "Invalid Code");
-        } finally {
             setLoading(false);
         }
     };
 
-    // Simulation Handlers
-    const { simulateLogin } = useAuth();
+    // Combine local loading (during auth process) and global loading (during profile fetch)
+    const isAppLoading = loading || isNavPaused;
+
+    if (isAppLoading) {
+        return <LoadingScreen message="Signing you in..." />;
+    }
 
     return (
         <View style={[styles.container, dynamicStyles.container]}>
@@ -127,6 +137,8 @@ export default function LoginScreen({ navigation }: any) {
             />
 
             <View style={styles.header}>
+                {/* Logo */}
+                <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
                 <Text style={[styles.title, dynamicStyles.title]}>Hostel StayEd</Text>
                 <Text style={[styles.subtitle, dynamicStyles.subtitle]}>Secure & Smart Living</Text>
             </View>
@@ -152,11 +164,10 @@ export default function LoginScreen({ navigation }: any) {
                             }}
                         />
                         <TouchableOpacity
-                            style={[styles.btn, loading && styles.btnDisabled]}
+                            style={[styles.btn]}
                             onPress={sendVerification}
-                            disabled={loading}
                         >
-                            {loading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Send OTP</Text>}
+                            <Text style={styles.btnText}>Send OTP</Text>
                         </TouchableOpacity>
                     </>
                 ) : (
@@ -170,11 +181,10 @@ export default function LoginScreen({ navigation }: any) {
                             onChangeText={setVerificationCode}
                         />
                         <TouchableOpacity
-                            style={[styles.btn, loading && styles.btnDisabled]}
+                            style={[styles.btn]}
                             onPress={confirmCode}
-                            disabled={loading}
                         >
-                            {loading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Verify & Login</Text>}
+                            <Text style={styles.btnText}>Verify & Login</Text>
                         </TouchableOpacity>
                     </>
                 )}
@@ -201,6 +211,7 @@ export default function LoginScreen({ navigation }: any) {
                             console.log(`[LoginScreen] Dev Mode attempt. Current Auth User: ${auth.currentUser?.uid || 'None'}`);
                             console.log(`[LoginScreen] Querying for phone: ${formattedPhone}`);
 
+                            setNavPaused(true); // Pause navigation BEFORE dev login
                             // 1. Sign in anonymously FIRST to be authenticated for the lookup
                             const userCredential = await signInAnonymously(auth);
                             const uid = userCredential.user.uid;
@@ -220,11 +231,15 @@ export default function LoginScreen({ navigation }: any) {
                             // Use AuthContext to perform migration and refresh state
                             await refreshUserData(uid, formattedPhone);
 
-                            Alert.alert("Dev Login Success", `Logged in as ${userProfile.role}`);
+                            setNavPaused(true);
+                            Alert.alert(
+                                "Dev Login Success",
+                                `Logged in as ${userProfile.role}`,
+                                [{ text: "OK", onPress: () => setNavPaused(false) }]
+                            );
                         } catch (error: any) {
                             console.error("[LoginScreen] Dev Login Error:", error);
                             Alert.alert("Error", error.message);
-                        } finally {
                             setLoading(false);
                         }
                     }}
@@ -244,7 +259,13 @@ const styles = StyleSheet.create({
     },
     header: {
         alignItems: 'center',
-        marginBottom: 40,
+        marginBottom: 30,
+    },
+    logo: {
+        width: 100,
+        height: 100,
+        marginBottom: 10,
+        borderRadius: 20,
     },
     title: {
         fontSize: 32,

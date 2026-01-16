@@ -25,9 +25,14 @@ service cloud.firestore {
     // 1. Users Collection
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && (
+      allow create: if isAuthenticated() && (
         request.auth.uid == userId ||
-        (request.method == 'delete' && resource.data.phone == getUserData().phone)
+        (isAdmin() && request.resource.data.role in ['resident', 'guardian'] && request.resource.data.hostelId == getUserData().hostelId)
+      );
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        (isAdmin() && resource.data.role in ['resident', 'guardian'] && resource.data.hostelId == getUserData().hostelId)
       );
     }
 
@@ -40,11 +45,13 @@ service cloud.firestore {
     // 3. Residents Collection
     match /residents/{residentId} {
       allow read: if isAuthenticated() && (
-                    (isAdmin() && getUserData().hostelId == resource.data.hostelId) ||
+                    (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
                     (getUserData().role == 'resident' && getUserData().residentId == residentId) ||
-                    (getUserData().role == 'guardian' && getUserData().linkedResidentId == residentId)
+                    (getUserData().role == 'guardian' && getUserData().linkedResidentId == residentId) ||
+                    (resource.data.phone == request.auth.token.phone_number) ||
+                    (resource.data.guardianPhone == request.auth.token.phone_number)
                   );
-      allow write: if isAdmin() && (resource == null || getUserData().hostelId == resource.data.hostelId);
+      allow write: if isAuthenticated() && getUserData().role == 'admin' && (resource == null || getUserData().hostelId == resource.data.hostelId);
     }
 
     // 4. Complaints Collection

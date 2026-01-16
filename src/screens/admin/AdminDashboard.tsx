@@ -1,11 +1,13 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../config/firebaseConfig';
 import { collection, getCountFromServer, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { ATTENDANCE_SLOTS } from '../../utils/attendanceUtils';
+import LoadingScreen from '../../components/LoadingScreen';
 
 export default function AdminDashboard({ navigation }: any) {
     const { user, signOut, hostelId } = useAuth(); // Added hostelId
@@ -13,7 +15,8 @@ export default function AdminDashboard({ navigation }: any) {
     const [residentCount, setResidentCount] = useState<number | string>('-');
     const [complaintCount, setComplaintCount] = useState<number | string>('-');
     const [alerts, setAlerts] = useState<any[]>([]);
-    const [missedAttendance, setMissedAttendance] = useState<{ count: number, slotName: string } | null>(null);
+    const [missedAttendance, setMissedAttendance] = useState<{ count: number, slotName: string, rawSlot: string } | null>(null);
+    const [loading, setLoading] = useState(true);
 
     // Dynamic Styles
     const dynamicStyles = {
@@ -34,6 +37,7 @@ export default function AdminDashboard({ navigation }: any) {
                 }
 
                 console.log(`[AdminDashboard] Fetching stats for hostel: ${hostelId}`);
+                setLoading(true);
                 try {
                     // 1. Resident Count (Isolated)
                     try {
@@ -101,9 +105,6 @@ export default function AdminDashboard({ navigation }: any) {
                         if (currentHour > ATTENDANCE_SLOTS.EVENING.end) {
                             targetSlot = 'EVENING';
                             slotLabel = 'Evening (8:00 PM - 9:30 PM)';
-                        } else if (currentHour > ATTENDANCE_SLOTS.MORNING.end) {
-                            targetSlot = 'MORNING';
-                            slotLabel = 'Morning (7:00 AM - 9:00 AM)';
                         }
 
                         if (targetSlot && typeof residentCount === 'number') {
@@ -123,7 +124,7 @@ export default function AdminDashboard({ navigation }: any) {
                             const attendedCount = uniqueResidents.size;
                             const missed = Math.max(0, residentCount - attendedCount);
 
-                            setMissedAttendance({ count: missed, slotName: slotLabel });
+                            setMissedAttendance({ count: missed, slotName: slotLabel, rawSlot: targetSlot });
                         } else {
                             setMissedAttendance(null);
                         }
@@ -132,118 +133,150 @@ export default function AdminDashboard({ navigation }: any) {
                         setMissedAttendance(null);
                     }
 
-                } catch (e: any) {
-                    console.error('[AdminDashboard] Global Stats Error:', e);
+                } finally {
+                    setLoading(false);
                 }
             };
 
             fetchStats();
         }, [hostelId])
     );
+    if (loading) {
+        return <LoadingScreen message="Loading dashboard statistics..." />;
+    }
 
     return (
-        <ScrollView contentContainerStyle={[styles.container, dynamicStyles.container]}>
-            <View style={styles.headerRow}>
-                <Text style={[styles.title, dynamicStyles.text]}>Admin Dashboard</Text>
-                <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
-                    <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
-                </TouchableOpacity>
-            </View>
-
-            {/* Stats Row */}
-            <View style={styles.statsContainer}>
-                <View style={[styles.statCard, dynamicStyles.card]}>
-                    <Text style={styles.statNumber}>{residentCount}</Text>
-                    <Text style={[styles.statLabel, dynamicStyles.subText]}>Total Residents</Text>
+        <SafeAreaView style={[styles.safeArea, dynamicStyles.container]} edges={['top', 'left', 'right']}>
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+                <View style={styles.headerRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
+                        <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
+                        <Text style={[styles.title, dynamicStyles.text]} numberOfLines={1} ellipsizeMode="tail">Admin Dashboard</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                        <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
+                            <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.iconBtn}>
+                            <Text style={{ fontSize: 24 }}>👤</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
-                <View style={[styles.statCard, dynamicStyles.card]}>
-                    <Text style={styles.statNumber}>{complaintCount}</Text>
-                    <Text style={[styles.statLabel, dynamicStyles.subText]}>Total Complaints</Text>
-                </View>
-            </View>
 
-            {/* Alerts & Reports Section */}
-            {(alerts.length > 0 || missedAttendance) && (
-                <View style={styles.reportSection}>
-                    {missedAttendance && (
-                        <View style={styles.attendanceReport}>
-                            <Text style={styles.sectionHeader}>📈 Attendance Gap Report</Text>
-                            <View style={styles.reportCard}>
-                                <Text style={styles.reportMain}>
-                                    <Text style={styles.reportHighlight}>{missedAttendance.count}</Text> Residents missed
-                                </Text>
-                                <Text style={styles.reportSub}>{missedAttendance.slotName}</Text>
+                {/* Stats Row */}
+                <View style={styles.statsContainer}>
+                    <View style={[styles.statCard, dynamicStyles.card]}>
+                        <Text style={styles.statNumber}>{residentCount}</Text>
+                        <Text style={[styles.statLabel, dynamicStyles.subText]}>Total Residents</Text>
+                    </View>
+                    <View style={[styles.statCard, dynamicStyles.card]}>
+                        <Text style={styles.statNumber}>{complaintCount}</Text>
+                        <Text style={[styles.statLabel, dynamicStyles.subText]}>Total Complaints</Text>
+                    </View>
+                </View>
+
+                {/* Alerts & Reports Section */}
+                {(alerts.length > 0 || missedAttendance) && (
+                    <View style={styles.reportSection}>
+                        {missedAttendance && (
+                            <View style={styles.attendanceReport}>
+                                <Text style={styles.sectionHeader}>📈 Attendance Gap Report</Text>
+                                <TouchableOpacity
+                                    style={styles.reportCard}
+                                    onPress={() => {
+                                        if (missedAttendance.count > 0) {
+                                            navigation.navigate('AbsentResidents', {
+                                                slotName: missedAttendance.slotName,
+                                                targetSlot: missedAttendance.rawSlot // pass raw slot (EVENING/MORNING)
+                                            });
+                                        }
+                                    }}
+                                >
+                                    <Text style={styles.reportMain}>
+                                        <Text style={styles.reportHighlight}>{missedAttendance.count}</Text> Residents missed
+                                    </Text>
+                                    <Text style={styles.reportSub}>
+                                        {missedAttendance.slotName} • Tap to view list ➔
+                                    </Text>
+                                </TouchableOpacity>
                             </View>
-                        </View>
-                    )}
+                        )}
 
-                    {alerts.length > 0 && (
-                        <View style={[styles.alertSection, missedAttendance && { marginTop: 15 }]}>
-                            <Text style={styles.sectionHeader}>🚨 Urgent Alerts</Text>
-                            {alerts.map((alert) => (
-                                <View key={alert.id} style={styles.alertCard}>
-                                    <Text style={styles.alertTitle}>{alert.title}</Text>
-                                    <Text style={styles.alertMsg}>{alert.message}</Text>
-                                </View>
-                            ))}
-                        </View>
-                    )}
+                        {alerts.length > 0 && (
+                            <View style={[styles.alertSection, missedAttendance && { marginTop: 15 }]}>
+                                <Text style={styles.sectionHeader}>🚨 Urgent Alerts</Text>
+                                {alerts.map((alert) => (
+                                    <View key={alert.id} style={styles.alertCard}>
+                                        <Text style={styles.alertTitle}>{alert.title}</Text>
+                                        <Text style={styles.alertMsg}>{alert.message}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+                    </View>
+                )}
+
+                <Text style={[styles.sectionTitle, dynamicStyles.text]}>Manage & Monitor</Text>
+
+                <View style={styles.grid}>
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('RegisterResident')}>
+                        <Text style={styles.icon}>👤</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Register Resident</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AllComplaints')}>
+                        <Text style={styles.icon}>⚠️</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>View Complaints</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AttendanceLog')}>
+                        <Text style={styles.icon}>📋</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Attendance Logs</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AdminLeaves')}>
+                        <Text style={styles.icon}>✈️</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>View Leaves</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AdminBroadcast')}>
+                        <Text style={styles.icon}>📢</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Send Broadcast</Text>
+                    </TouchableOpacity>
                 </View>
-            )}
 
-            <Text style={[styles.sectionTitle, dynamicStyles.text]}>Manage & Monitor</Text>
-
-            <View style={styles.grid}>
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('RegisterResident')}>
-                    <Text style={styles.icon}>👤</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Register Resident</Text>
+                <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
+                    <Text style={styles.logoutText}>Logout</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AllComplaints')}>
-                    <Text style={styles.icon}>⚠️</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>View Complaints</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AttendanceLog')}>
-                    <Text style={styles.icon}>📋</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Attendance Logs</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AdminLeaves')}>
-                    <Text style={styles.icon}>✈️</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>View Leaves</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AdminBroadcast')}>
-                    <Text style={styles.icon}>📢</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Send Broadcast / Notice</Text>
-                </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-                <Text style={styles.logoutText}>Logout</Text>
-            </TouchableOpacity>
-
-            <View style={{ height: 40 }} />
-        </ScrollView>
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
+    safeArea: {
+        flex: 1,
+    },
+    scrollContent: {
         padding: 20,
-        minHeight: '100%',
     },
     headerRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 20,
-        marginTop: 20,
+        marginTop: 10,
     },
     title: {
         fontSize: 28,
         fontWeight: 'bold',
+    },
+    logo: {
+        width: 40,
+        height: 40,
+        marginRight: 10,
+        borderRadius: 8,
     },
     iconBtn: {
         backgroundColor: 'rgba(150,150,150,0.2)',

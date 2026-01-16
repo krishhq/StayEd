@@ -1,15 +1,18 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
 import { Broadcast } from '../../services/firestoreService';
+import LoadingScreen from '../../components/LoadingScreen';
 
 export default function ResidentDashboard({ navigation }: any) {
     const { signOut, hostelId } = useAuth();
     const { colors, theme, toggleTheme } = useTheme();
     const [latestBroadcast, setLatestBroadcast] = React.useState<Broadcast | null>(null);
+    const [loading, setLoading] = React.useState(true);
 
     React.useEffect(() => {
         if (!hostelId) return;
@@ -40,6 +43,7 @@ export default function ResidentDashboard({ navigation }: any) {
                     docs.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
                 }
                 setLatestBroadcast(docs[0]);
+                setLoading(false);
             }, (error) => {
                 // If index missing, fallback to non-ordered listener
                 if (useOrderBy && error.code === 'failed-precondition') {
@@ -64,93 +68,113 @@ export default function ResidentDashboard({ navigation }: any) {
         cardText: { color: colors.text },
     };
 
+    if (loading) {
+        return <LoadingScreen message="Loading dashboard..." />;
+    }
+
     return (
-        <ScrollView style={[styles.container, dynamicStyles.container]}>
-            {/* Header Section */}
-            <View style={styles.header}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View>
-                        <Text style={[styles.welcome, dynamicStyles.text]}>Welcome Resident!</Text>
-                        <Text style={[styles.subtext, dynamicStyles.subText]}>What would you like to do today?</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 10 }}>
-                        <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
-                            <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.profileBtn}>
-                            <Text style={{ fontSize: 24 }}>👤</Text>
-                        </TouchableOpacity>
+        <SafeAreaView style={[styles.safeArea, dynamicStyles.container]} edges={['top', 'left', 'right']}>
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+                {/* Header Section */}
+                <View style={styles.header}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
+                            <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
+                            <View style={{ flex: 1 }}>
+                                <Text style={[styles.welcome, dynamicStyles.text]} numberOfLines={1} ellipsizeMode="tail">Welcome Resident!</Text>
+                                <Text style={[styles.subtext, dynamicStyles.subText]} numberOfLines={1} ellipsizeMode="tail">What would you like to do today?</Text>
+                            </View>
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                            <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
+                                <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.profileBtn}>
+                                <Text style={{ fontSize: 24 }}>👤</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
-            </View>
 
-            {/* Broadcast Banner */}
-            {latestBroadcast && (
-                <TouchableOpacity
-                    activeOpacity={0.9}
-                    onPress={() => navigation.navigate('BroadcastHistory')}
-                    style={[
-                        styles.broadcastBanner,
-                        latestBroadcast.priority === 'emergency' ? styles.emergencyBanner : styles.normalBanner
-                    ]}
-                >
-                    <View style={styles.broadcastHeader}>
-                        <Text style={styles.broadcastType}>
-                            {latestBroadcast.priority === 'emergency' ? '🚨 EMERGENCY' : '📢 LATEST NEWS'}
-                        </Text>
-                        <Text style={styles.broadcastTime}>View History</Text>
-                    </View>
-                    <Text style={styles.broadcastTitle}>{latestBroadcast.title}</Text>
-                    <Text style={styles.broadcastMsg} numberOfLines={2}>{latestBroadcast.message}</Text>
+                {/* Broadcast Banner */}
+                {latestBroadcast && (
+                    <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => navigation.navigate('BroadcastHistory')}
+                        style={[
+                            styles.broadcastBanner,
+                            latestBroadcast.priority === 'emergency' ? styles.emergencyBanner : styles.normalBanner
+                        ]}
+                    >
+                        <View style={styles.broadcastHeader}>
+                            <Text style={styles.broadcastType}>
+                                {latestBroadcast.priority === 'emergency' ? '🚨 EMERGENCY' : '📢 LATEST NEWS'}
+                            </Text>
+                            <Text style={styles.broadcastTime}>View History</Text>
+                        </View>
+                        <Text style={styles.broadcastTitle}>{latestBroadcast.title}</Text>
+                        <Text style={styles.broadcastMsg} numberOfLines={2}>{latestBroadcast.message}</Text>
+                    </TouchableOpacity>
+                )}
+
+                <View style={styles.grid}>
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Attendance')}>
+                        <Text style={styles.cardIcon}>📷</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Log Entry/Exit</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Complaints')}>
+                        <Text style={styles.cardIcon}>🔧</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Raise Complaint</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Forum')}>
+                        <Text style={styles.cardIcon}>💬</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Community Forum</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Leave')}>
+                        <Text style={styles.cardIcon}>📅</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Apply Leave</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Mess')}>
+                        <Text style={styles.cardIcon}>🍛</Text>
+                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Mess Menu</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
+                    <Text style={styles.logoutText}>Logout</Text>
                 </TouchableOpacity>
-            )}
-
-            <View style={styles.grid}>
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Attendance')}>
-                    <Text style={styles.cardIcon}>📷</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Log Entry/Exit</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Complaints')}>
-                    <Text style={styles.cardIcon}>🔧</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Raise Complaint</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Forum')}>
-                    <Text style={styles.cardIcon}>💬</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Community Forum</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Leave')}>
-                    <Text style={styles.cardIcon}>📅</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Apply Leave</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Mess')}>
-                    <Text style={styles.cardIcon}>🍛</Text>
-                    <Text style={[styles.cardText, dynamicStyles.cardText]}>Mess Menu</Text>
-                </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-                <Text style={styles.logoutText}>Logout</Text>
-            </TouchableOpacity>
-        </ScrollView>
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
+    safeArea: {
+        flex: 1,
+    },
+    scrollContent: {
+        paddingBottom: 20,
+    },
     container: {
         flex: 1,
-        padding: 20,
     },
     header: {
-        marginTop: 40,
-        marginBottom: 30,
+        padding: 20,
+        marginBottom: 10,
     },
     welcome: {
         fontSize: 28,
         fontWeight: 'bold',
+    },
+    logo: {
+        width: 50,
+        height: 50,
+        marginRight: 15,
+        borderRadius: 10,
     },
     subtext: {
         fontSize: 16,

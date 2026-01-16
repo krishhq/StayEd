@@ -195,8 +195,11 @@ export default function HostelRegistrationScreen({ navigation }: any) {
             }, uid); // Pass UID as second arg!
 
             setShowOtpModal(false);
+
             // D. Refresh Auth Context to update User Role
+            console.log("Refreshing user data for UID:", uid);
             await refreshUserData(uid);
+            console.log("User data refreshed. Hostel ID should be set.");
 
             Alert.alert(
                 'Success!',
@@ -265,7 +268,9 @@ export default function HostelRegistrationScreen({ navigation }: any) {
             }, uid); // Pass UID as second arg!
 
             // D. Refresh Auth Context to update User Role
+            console.log("Refreshing user data (Dev) for UID:", uid);
             await refreshUserData(uid);
+            console.log("User data refreshed (Dev).");
 
             Alert.alert(
                 'Success (Dev Mode)',

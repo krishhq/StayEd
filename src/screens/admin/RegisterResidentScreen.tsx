@@ -17,7 +17,7 @@ export default function RegisterResidentScreen() {
     const [permanentAddress, setPermanentAddress] = useState('');
     const [aadharCard, setAadharCard] = useState('');
 
-    const { hostelId } = useAuth(); // Get Hostel ID from Auth Context
+    const { hostelId, user, userData } = useAuth(); // Get Hostel ID from Auth Context
 
     const handleRegister = async () => {
         if (!name || !phone || phone === '+91' || !guardianName || !guardianPhone || guardianPhone === '+91' || !room) {
@@ -26,6 +26,11 @@ export default function RegisterResidentScreen() {
         }
 
         if (!hostelId) {
+            console.error('[RegisterResidentScreen] Hostel ID missing!', {
+                uid: user?.uid,
+                hostelId,
+                userData
+            });
             Alert.alert('Error', 'Hostel ID not found. Are you logged in as an Admin?');
             return;
         }

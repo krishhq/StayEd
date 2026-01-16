@@ -8,6 +8,7 @@ import { View, ActivityIndicator } from 'react-native';
 import LoginScreen from '../screens/auth/LoginScreen';
 import PendingScreen from '../screens/auth/PendingScreen';
 import HostelRegistrationScreen from '../screens/auth/HostelRegistrationScreen';
+import LoadingScreen from '../components/LoadingScreen';
 
 // Resident Screens
 import ResidentDashboard from '../screens/resident/ResidentDashboard';
@@ -27,6 +28,7 @@ import AllComplaintsScreen from '../screens/admin/AllComplaintsScreen';
 import AttendanceLogScreen from '../screens/admin/AttendanceLogScreen';
 import AdminLeaveScreen from '../screens/admin/AdminLeaveScreen';
 import AdminBroadcastScreen from '../screens/admin/AdminBroadcastScreen';
+import AbsentResidentsScreen from '../screens/admin/AbsentResidentsScreen';
 
 // Guardian Screens
 import GuardianDashboard from '../screens/guardian/GuardianDashboard';
@@ -35,20 +37,16 @@ import GuardianLeaveScreen from '../screens/guardian/GuardianLeaveScreen';
 const Stack = createNativeStackNavigator();
 
 export default function RootNavigator() {
-    const { user, userRole, isLoading } = useAuth();
+    const { user, userRole, isLoading, isNavPaused } = useAuth();
 
     if (isLoading) {
-        return (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                <ActivityIndicator size="large" />
-            </View>
-        );
+        return <LoadingScreen message="Checking authentication..." />;
     }
 
     return (
         <NavigationContainer>
             <Stack.Navigator>
-                {user ? (
+                {user && !isNavPaused ? (
                     // Authenticated Stacks
                     userRole === 'resident' ? (
                         <>
@@ -69,11 +67,14 @@ export default function RootNavigator() {
                             <Stack.Screen name="AttendanceLog" component={AttendanceLogScreen} />
                             <Stack.Screen name="AdminLeaves" component={AdminLeaveScreen} />
                             <Stack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} options={{ title: 'Send Broadcast' }} />
+                            <Stack.Screen name="AbsentResidents" component={AbsentResidentsScreen} options={{ title: 'Absent Residents' }} />
+                            <Stack.Screen name="Profile" component={ProfileScreen} />
                         </>
                     ) : userRole === 'guardian' ? (
                         <>
                             <Stack.Screen name="GuardianDashboard" component={GuardianDashboard} />
                             <Stack.Screen name="GuardianLeave" component={GuardianLeaveScreen} />
+                            <Stack.Screen name="Profile" component={ProfileScreen} />
                         </>
                     ) : (
                         // Fallback for user with no role (or new user) - effectively "Pending Approval" or similar

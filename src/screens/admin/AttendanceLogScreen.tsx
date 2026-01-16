@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { db } from '../../config/firebaseConfig';
-import { collection, query, where, orderBy, getDocs, limit } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, QuerySnapshot, FirestoreError, getDoc, doc } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -11,6 +11,8 @@ export default function AttendanceLogScreen() {
     const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'attendance' | 'entry_exit'>('attendance');
+    const [residentCache, setResidentCache] = useState<{ [key: string]: { name: string, room: string } }>({});
+
 
     const dynamicStyles = {
         container: { backgroundColor: colors.background },
@@ -19,24 +21,30 @@ export default function AttendanceLogScreen() {
         subText: { color: colors.subText }
     };
 
-    const fetchLogs = async () => {
+    useEffect(() => {
+        if (!hostelId) return;
+
+        console.log(`[AttendanceLog] Initializing subscription for tab: ${activeTab}, hostel: ${hostelId}`);
         setLoading(true);
-        try {
-            if (!hostelId) return;
 
-            const collectionName = activeTab === 'attendance' ? 'attendance' : 'entry_exit_logs';
-            console.log(`[AttendanceLog] Fetching from ${collectionName} for hostel: ${hostelId}`);
+        const collectionName = activeTab === 'attendance' ? 'attendance' : 'entry_exit_logs';
+        const q = query(
+            collection(db, collectionName),
+            where('hostelId', '==', hostelId),
+            orderBy('timestamp', 'desc'),
+            limit(50)
+        );
 
-            const q = query(
-                collection(db, collectionName),
-                where('hostelId', '==', hostelId),
-                orderBy('timestamp', 'desc'),
-                limit(50)
-            );
-            const querySnapshot = await getDocs(q);
+        const unsubscribe = onSnapshot(q, async (snapshot: QuerySnapshot) => {
+            console.log(`[AttendanceLog] Snapshot update received for ${activeTab}. Docs: ${snapshot.size}`);
+
             const fetched: any[] = [];
-            querySnapshot.forEach((doc) => {
+            const uniqueResidentIds = new Set<string>();
+
+            snapshot.forEach((doc) => {
                 const data = doc.data();
+                if (data.residentId) uniqueResidentIds.add(data.residentId);
+
                 let timeString = 'Unknown Time';
                 if (data.timestamp) {
                     const date = data.timestamp.toDate ? data.timestamp.toDate() : new Date(data.timestamp);
@@ -45,40 +53,76 @@ export default function AttendanceLogScreen() {
 
                 fetched.push({ id: doc.id, ...data, timeString });
             });
-            setLogs(fetched);
-        } catch (error: any) {
-            console.error(`[AttendanceLog] Fetch Error (${activeTab}):`, error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
-    useEffect(() => {
-        fetchLogs();
+            // Fetch details for new residents
+            const newCache = { ...residentCache };
+            let cacheUpdated = false;
+
+            await Promise.all(Array.from(uniqueResidentIds).map(async (rid) => {
+                if (!newCache[rid]) {
+                    try {
+                        const resDoc = await getDoc(doc(db, 'residents', rid));
+                        if (resDoc.exists()) {
+                            const resData = resDoc.data();
+                            newCache[rid] = { name: resData.name, room: resData.roomNumber };
+                            cacheUpdated = true;
+                        }
+                    } catch (e) {
+                        console.warn(`[AttendanceLog] Failed to load resident ${rid}`, e);
+                    }
+                }
+            }));
+
+            if (cacheUpdated) {
+                setResidentCache(newCache);
+            }
+
+            setLogs(fetched);
+            setLoading(false);
+        }, (error: FirestoreError) => {
+            console.error(`[AttendanceLog] Subscription Error (${activeTab}):`, error);
+            setLoading(false);
+        });
+
+        // Cleanup subscription on unmount or dependency change
+        return () => unsubscribe();
     }, [hostelId, activeTab]);
 
-    const renderItem = ({ item }: any) => (
-        <View style={[styles.row, dynamicStyles.card]}>
-            <View>
-                <Text style={[styles.residentId, dynamicStyles.text]}>Resident ID: {item.residentId || 'Unknown'}</Text>
-                <Text style={[styles.timestamp, dynamicStyles.subText]}>{item.timeString}</Text>
-                {activeTab === 'attendance' && item.distance !== undefined && (
-                    <Text style={[styles.distance, dynamicStyles.subText]}>📍 {item.distance.toFixed(1)}m from center</Text>
-                )}
+    // Simplified manual refresh just in case (though onSnapshot handles updates)
+    const handleRefresh = () => {
+        // Since onSnapshot is active, this might just check loading state or could be removed.
+        // For UI feedback, we can just toggle loading briefly.
+        setLoading(true);
+        setTimeout(() => setLoading(false), 500);
+    };
+
+    const renderItem = ({ item }: any) => {
+        const details = residentCache[item.residentId];
+        return (
+            <View style={[styles.row, dynamicStyles.card]}>
+                <View>
+                    <Text style={[styles.residentId, dynamicStyles.text]}>
+                        {details ? `${details.name} (Room: ${details.room})` : `ID: ${item.residentId || 'Unknown'}`}
+                    </Text>
+                    <Text style={[styles.timestamp, dynamicStyles.subText]}>{item.timeString}</Text>
+                    {activeTab === 'attendance' && item.distance !== undefined && (
+                        <Text style={[styles.distance, dynamicStyles.subText]}>📍 {item.distance.toFixed(1)}m from center</Text>
+                    )}
+                </View>
+                <View style={styles.rightContent}>
+                    {activeTab === 'attendance' ? (
+                        <View style={[styles.badge, { backgroundColor: '#4CAF50' }]}>
+                            <Text style={styles.badgeText}>Present</Text>
+                        </View>
+                    ) : (
+                        <View style={[styles.badge, { backgroundColor: item.type === 'entry' ? '#2196F3' : '#F44336' }]}>
+                            <Text style={styles.badgeText}>{item.type === 'entry' ? 'Entry' : 'Exit'}</Text>
+                        </View>
+                    )}
+                </View>
             </View>
-            <View style={styles.rightContent}>
-                {activeTab === 'attendance' ? (
-                    <View style={[styles.badge, { backgroundColor: '#4CAF50' }]}>
-                        <Text style={styles.badgeText}>Present</Text>
-                    </View>
-                ) : (
-                    <View style={[styles.badge, { backgroundColor: item.type === 'entry' ? '#2196F3' : '#F44336' }]}>
-                        <Text style={styles.badgeText}>{item.type === 'entry' ? 'Entry' : 'Exit'}</Text>
-                    </View>
-                )}
-            </View>
-        </View>
-    );
+        );
+    };
 
     return (
         <View style={[styles.container, dynamicStyles.container]}>
@@ -108,7 +152,7 @@ export default function AttendanceLogScreen() {
                     keyExtractor={(item) => item.id}
                     renderItem={renderItem}
                     contentContainerStyle={styles.list}
-                    onRefresh={fetchLogs}
+                    onRefresh={handleRefresh}
                     refreshing={loading}
                     ListEmptyComponent={
                         <View style={styles.center}>
