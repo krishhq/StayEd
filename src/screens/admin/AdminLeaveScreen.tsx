@@ -1,12 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { db } from '../../config/firebaseConfig';
 import { collection, query, where, orderBy, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { sendPushNotification } from '../../utils/notificationUtils';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
 export default function AdminLeaveScreen() {
     const { hostelId } = useAuth();
+    const { colors } = useTheme();
+    const navigation = useNavigation();
     const [leaves, setLeaves] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'pending' | 'all'>('pending');
@@ -17,14 +25,12 @@ export default function AdminLeaveScreen() {
             if (!hostelId) return;
             let q;
             if (filter === 'pending') {
-                // Admin only sees what Guardian has approved (pending_admin)
                 q = query(
                     collection(db, 'leaves'),
                     where('hostelId', '==', hostelId),
                     where('status', '==', 'pending_admin')
                 );
             } else {
-                // View history
                 q = query(
                     collection(db, 'leaves'),
                     where('hostelId', '==', hostelId),
@@ -40,7 +46,6 @@ export default function AdminLeaveScreen() {
             setLeaves(fetched);
         } catch (error) {
             console.error(error);
-            // Fallback if index missing
             setLeaves([]);
         } finally {
             setLoading(false);
@@ -54,20 +59,17 @@ export default function AdminLeaveScreen() {
     const handleAction = async (id: string, action: 'approve' | 'reject') => {
         try {
             const docRef = doc(db, 'leaves', id);
-
-            // Fetch leaf data to get the resident's UID
             const leafSnap = await getDoc(docRef);
             if (!leafSnap.exists()) {
                 Alert.alert('Error', 'Leave record not found');
                 return;
             }
             const leafData = leafSnap.data();
-            const residentUid = leafData.userId; // This is the UID for the resident
+            const residentUid = leafData.userId;
 
             const newStatus = action === 'approve' ? 'approved' : 'rejected';
             await updateDoc(docRef, { status: newStatus });
 
-            // Send notification to Resident
             if (residentUid) {
                 const userDocRef = doc(db, 'users', residentUid);
                 const userSnap = await getDoc(userDocRef);
@@ -94,156 +96,217 @@ export default function AdminLeaveScreen() {
 
     const getStatusColor = (status: string) => {
         switch (status) {
-            case 'approved': return 'green';
-            case 'pending_admin': return 'orange';
-            case 'rejected': return 'red';
-            default: return 'gray';
+            case 'approved': return '#10B981';
+            case 'pending_admin': return '#F59E0B';
+            case 'rejected': return '#F43F5E';
+            default: return colors.subText;
         }
     };
 
+    const renderTabButton = (type: 'pending' | 'all', label: string) => {
+        const isActive = filter === type;
+        return (
+            <TouchableOpacity
+                style={[styles.tabButton, isActive && { backgroundColor: colors.primary }]}
+                onPress={() => setFilter(type)}
+            >
+                <Text style={[styles.tabText, { color: isActive ? 'white' : colors.subText }]}>
+                    {label}
+                </Text>
+            </TouchableOpacity>
+        );
+    };
+
     const renderItem = ({ item }: any) => (
-        <View style={[styles.card, { borderLeftColor: getStatusColor(item.status) }]}>
-            <View style={styles.header}>
-                <Text style={styles.reason}>{item.reason}</Text>
-                <Text style={[styles.status, { color: getStatusColor(item.status) }]}>
-                    {item.status.toUpperCase()}
+        <Card style={styles.card} variant="elevated">
+            <View style={styles.cardHeader}>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
+                    <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
+                        {item.status.replace('_admin', '').toUpperCase()}
+                    </Text>
+                </View>
+                <Text style={[styles.dateText, { color: colors.subText }]}>
+                    {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : 'N/A'}
                 </Text>
             </View>
-            <Text style={styles.dates}>From: {item.startDate} To: {item.endDate}</Text>
-            <Text style={styles.uid}>User ID: {item.userId}</Text>
+
+            <Text style={[styles.reason, { color: colors.text }]}>{item.reason}</Text>
+
+            <View style={styles.detailBox}>
+                <View style={styles.detailRow}>
+                    <Text style={[styles.detailLabel, { color: colors.subText }]}>PERIOD</Text>
+                    <Text style={[styles.detailValue, { color: colors.text }]}>
+                        {item.startDate} — {item.endDate}
+                    </Text>
+                </View>
+                <View style={styles.detailRow}>
+                    <Text style={[styles.detailLabel, { color: colors.subText }]}>RESIDENT ID</Text>
+                    <Text style={[styles.detailValue, { color: colors.subText, fontSize: 10 }]}>{item.userId}</Text>
+                </View>
+            </View>
 
             {item.status === 'pending_admin' && (
                 <View style={styles.btnRow}>
-                    <TouchableOpacity style={[styles.btn, styles.rejectBtn]} onPress={() => handleAction(item.id, 'reject')}>
-                        <Text style={styles.btnText}>Reject</Text>
+                    <TouchableOpacity
+                        style={[styles.actionBtn, { borderColor: '#F43F5E' }]}
+                        onPress={() => handleAction(item.id, 'reject')}
+                    >
+                        <Text style={[styles.btnText, { color: '#F43F5E' }]}>Reject</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.btn, styles.approveBtn]} onPress={() => handleAction(item.id, 'approve')}>
-                        <Text style={styles.btnText}>Final Approve</Text>
+                    <TouchableOpacity
+                        style={[styles.actionBtn, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                        onPress={() => handleAction(item.id, 'approve')}
+                    >
+                        <Text style={[styles.btnText, { color: 'white' }]}>Approve</Text>
                     </TouchableOpacity>
                 </View>
             )}
-        </View>
+        </Card>
     );
 
     return (
-        <View style={styles.container}>
-            <Text style={styles.title}>Leave Approvals</Text>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title="Leave Approvals" onBackPress={() => navigation.goBack()} />
 
-            <View style={styles.filterContainer}>
-                <TouchableOpacity onPress={() => setFilter('pending')} style={[styles.filterBtn, filter === 'pending' && styles.activeFilter]}>
-                    <Text style={[styles.filterText, filter === 'pending' && styles.activeFilterText]}>Pending Requests</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setFilter('all')} style={[styles.filterBtn, filter === 'all' && styles.activeFilter]}>
-                    <Text style={[styles.filterText, filter === 'all' && styles.activeFilterText]}>All History</Text>
-                </TouchableOpacity>
+            <View style={styles.tabsWrapper}>
+                <View style={styles.tabContainer}>
+                    {renderTabButton('pending', 'Pending Requests')}
+                    {renderTabButton('all', 'All History')}
+                </View>
             </View>
 
             {loading ? (
-                <ActivityIndicator />
+                <View style={styles.center}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
             ) : (
                 <FlatList
                     data={leaves}
                     keyExtractor={(item) => item.id}
                     renderItem={renderItem}
                     contentContainerStyle={styles.list}
-                    ListEmptyComponent={<Text style={styles.empty}>No records found.</Text>}
+                    showsVerticalScrollIndicator={false}
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyIcon}>📂</Text>
+                            <Text style={[styles.emptyText, { color: colors.subText }]}>No leave records found</Text>
+                        </View>
+                    }
                     onRefresh={fetchLeaves}
                     refreshing={loading}
                 />
             )}
-        </View>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        padding: 20,
-        backgroundColor: '#f5f5f5',
     },
-    title: {
-        fontSize: 22,
-        fontWeight: 'bold',
-        marginBottom: 15,
+    tabsWrapper: {
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
     },
-    filterContainer: {
+    tabContainer: {
         flexDirection: 'row',
-        marginBottom: 20,
+        padding: Spacing.md,
+        gap: Spacing.sm,
     },
-    filterBtn: {
-        marginRight: 10,
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 20,
-        backgroundColor: '#ddd',
+    tabButton: {
+        flex: 1,
+        paddingVertical: Spacing.sm,
+        borderRadius: BorderRadius.full,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
     },
-    activeFilter: {
-        backgroundColor: '#007AFF',
-    },
-    filterText: {
-        color: '#333',
-    },
-    activeFilterText: {
-        color: 'white',
-        fontWeight: 'bold',
+    tabText: {
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
     },
     list: {
-        paddingBottom: 20,
+        padding: Spacing.md,
+        paddingBottom: Spacing.xl,
     },
     card: {
-        backgroundColor: 'white',
-        padding: 15,
-        borderRadius: 8,
-        marginBottom: 15,
-        elevation: 2,
-        borderLeftWidth: 5,
+        padding: Spacing.lg,
+        marginBottom: Spacing.md,
     },
-    header: {
+    cardHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: 5,
+        alignItems: 'center',
+        marginBottom: Spacing.md,
+    },
+    statusBadge: {
+        paddingHorizontal: Spacing.sm,
+        paddingVertical: 4,
+        borderRadius: BorderRadius.sm,
+    },
+    statusText: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+    },
+    dateText: {
+        fontSize: Typography.size.xs,
     },
     reason: {
-        fontSize: 16,
-        fontWeight: 'bold',
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.md,
     },
-    status: {
-        fontWeight: 'bold',
-        fontSize: 12,
+    detailBox: {
+        backgroundColor: '#F9FAFB',
+        borderRadius: BorderRadius.md,
+        padding: Spacing.md,
+        marginBottom: Spacing.lg,
     },
-    dates: {
-        color: '#444',
-        marginBottom: 5,
+    detailRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4,
     },
-    uid: {
+    detailLabel: {
         fontSize: 10,
-        color: '#999',
-        marginBottom: 10,
+        fontWeight: Typography.weight.bold,
+    },
+    detailValue: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.medium,
     },
     btnRow: {
         flexDirection: 'row',
-        justifyContent: 'flex-end',
-        gap: 10,
-        marginTop: 5,
+        gap: Spacing.md,
     },
-    btn: {
-        paddingVertical: 8,
-        paddingHorizontal: 15,
-        borderRadius: 5,
-    },
-    approveBtn: {
-        backgroundColor: 'green',
-    },
-    rejectBtn: {
-        backgroundColor: 'red',
+    actionBtn: {
+        flex: 1,
+        paddingVertical: Spacing.md,
+        borderRadius: BorderRadius.md,
+        alignItems: 'center',
+        borderWidth: 1.5,
     },
     btnText: {
-        color: 'white',
-        fontWeight: 'bold',
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.bold,
     },
-    empty: {
-        textAlign: 'center',
-        marginTop: 50,
-        color: '#888',
+    center: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emptyContainer: {
+        marginTop: 100,
+        alignItems: 'center',
+    },
+    emptyIcon: {
+        fontSize: 48,
+        marginBottom: Spacing.md,
+    },
+    emptyText: {
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.medium,
     }
 });
+

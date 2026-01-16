@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import { useColorScheme } from 'react-native';
+import { Colors } from '../constants/DesignSystem';
+
 
 type Theme = 'light' | 'dark';
 
@@ -8,27 +10,18 @@ interface ThemeColors {
     text: string;
     card: string;
     primary: string;
+    secondary: string;
     border: string;
     subText: string;
+    success: string;
+    warning: string;
+    error: string;
+    info: string;
 }
 
-export const lightColors: ThemeColors = {
-    background: '#f5f5f5',
-    text: '#333333',
-    card: '#ffffff',
-    primary: '#007AFF',
-    border: '#eeeeee',
-    subText: '#666666',
-};
+export const lightColors: ThemeColors = Colors.light;
+export const darkColors: ThemeColors = Colors.dark;
 
-export const darkColors: ThemeColors = {
-    background: '#121212',
-    text: '#ffffff',
-    card: '#1e1e1e',
-    primary: '#0a84ff',
-    border: '#333333',
-    subText: '#aaaaaa',
-};
 
 interface ThemeContextType {
     theme: Theme;

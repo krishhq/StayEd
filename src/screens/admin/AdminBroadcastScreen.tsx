@@ -1,28 +1,27 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView, Switch } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { createBroadcast, getUserByPhone } from '../../services/firestoreService';
+import { createBroadcast } from '../../services/firestoreService';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
 import { sendBulkNotifications } from '../../utils/notificationUtils';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
-export default function AdminBroadcastScreen({ navigation }: any) {
+export default function AdminBroadcastScreen() {
     const { hostelId, user } = useAuth();
     const { colors } = useTheme();
+    const navigation = useNavigation();
     const [title, setTitle] = useState('');
     const [message, setMessage] = useState('');
     const [priority, setPriority] = useState<'normal' | 'emergency'>('normal');
     const [showInBanner, setShowInBanner] = useState(true);
     const [showInForum, setShowInForum] = useState(true);
     const [loading, setLoading] = useState(false);
-
-    const dynamicStyles = {
-        container: { backgroundColor: colors.background },
-        text: { color: colors.text },
-        input: { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
-        card: { backgroundColor: colors.card, borderColor: colors.border },
-    };
 
     const handleSend = async () => {
         if (!title.trim() || !message.trim()) {
@@ -37,7 +36,6 @@ export default function AdminBroadcastScreen({ navigation }: any) {
 
         setLoading(true);
         try {
-            // 1. Save to Broadcasts (Dashboard Banner)
             if (showInBanner) {
                 await createBroadcast({
                     hostelId,
@@ -48,34 +46,32 @@ export default function AdminBroadcastScreen({ navigation }: any) {
                 });
             }
 
-            // 2. Save to Forum (One-Way Broadcast)
             if (showInForum) {
                 await addDoc(collection(db, 'forum_posts'), {
-                    text: message, // Use direct message
+                    text: message,
                     userId: user.uid,
                     userName: 'Admin',
                     hostelId,
                     postType: 'admin_broadcast',
-                    priority: priority, // Pass priority (normal/emergency) for styling
+                    priority: priority,
                     createdAt: serverTimestamp(),
                     notifyAll: true
                 });
             }
 
-            // 3. Fetch all residents for push notifications
             if (showInBanner || showInForum) {
                 try {
                     let usersSnap;
+                    const qPrimary = query(
+                        collection(db, 'users'),
+                        where('hostelId', '==', hostelId),
+                        where('role', '==', 'resident'),
+                        where('pushToken', '!=', null)
+                    );
+
                     try {
-                        const q = query(
-                            collection(db, 'users'),
-                            where('hostelId', '==', hostelId),
-                            where('role', '==', 'resident'),
-                            where('pushToken', '!=', null)
-                        );
-                        usersSnap = await getDocs(q);
+                        usersSnap = await getDocs(qPrimary);
                     } catch (indexError) {
-                        console.warn('[AdminBroadcast] Index missing for push tokens, falling back to client-side filter');
                         const qFallback = query(
                             collection(db, 'users'),
                             where('hostelId', '==', hostelId),
@@ -102,7 +98,6 @@ export default function AdminBroadcastScreen({ navigation }: any) {
                     }
                 } catch (notifError) {
                     console.error('[AdminBroadcast] Notification delivery failed:', notifError);
-                    // We don't Alert.alert here because the broadcast itself was saved (UX choice)
                 }
             }
 
@@ -120,131 +115,185 @@ export default function AdminBroadcastScreen({ navigation }: any) {
     };
 
     return (
-        <ScrollView contentContainerStyle={[styles.container, dynamicStyles.container]}>
-            <Text style={[styles.label, dynamicStyles.text]}>Broadcast Title*</Text>
-            <TextInput
-                style={[styles.input, dynamicStyles.input]}
-                value={title}
-                onChangeText={setTitle}
-                placeholder="e.g. Maintenance Work"
-                placeholderTextColor={colors.subText}
-            />
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title="Broadcast Unit" onBackPress={() => navigation.goBack()} />
 
-            <Text style={[styles.label, dynamicStyles.text]}>Message*</Text>
-            <TextInput
-                style={[styles.input, styles.textArea, dynamicStyles.input]}
-                value={message}
-                onChangeText={setMessage}
-                placeholder="Details of the broadcast..."
-                placeholderTextColor={colors.subText}
-                multiline
-                numberOfLines={6}
-            />
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <Card style={styles.formCard}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Compose Message</Text>
 
-            <View style={styles.priorityRow}>
-                <Text style={[styles.label, dynamicStyles.text]}>Show in Dashboard Banner</Text>
-                <Switch
-                    value={showInBanner}
-                    onValueChange={setShowInBanner}
-                    trackColor={{ false: "#767577", true: "#81b0ff" }}
-                />
-            </View>
+                    <View style={styles.inputGroup}>
+                        <Text style={[styles.label, { color: colors.subText }]}>Title</Text>
+                        <TextInput
+                            style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                            value={title}
+                            onChangeText={setTitle}
+                            placeholder="e.g. Water Maintenance Notice"
+                            placeholderTextColor={colors.subText + '50'}
+                        />
+                    </View>
 
-            <View style={styles.priorityRow}>
-                <Text style={[styles.label, dynamicStyles.text]}>Post in Community Forum</Text>
-                <Switch
-                    value={showInForum}
-                    onValueChange={setShowInForum}
-                    trackColor={{ false: "#767577", true: "#81b0ff" }}
-                />
-            </View>
+                    <View style={styles.inputGroup}>
+                        <Text style={[styles.label, { color: colors.subText }]}>Detailed Announcement</Text>
+                        <TextInput
+                            style={[styles.input, styles.textArea, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                            value={message}
+                            onChangeText={setMessage}
+                            placeholder="Provide full details here..."
+                            placeholderTextColor={colors.subText + '50'}
+                            multiline
+                            numberOfLines={6}
+                        />
+                    </View>
+                </Card>
 
-            <View style={styles.priorityRow}>
-                <Text style={[styles.label, dynamicStyles.text]}>Mark as Emergency 🚨</Text>
-                <Switch
-                    value={priority === 'emergency'}
-                    onValueChange={(val) => setPriority(val ? 'emergency' : 'normal')}
-                    trackColor={{ false: "#767577", true: "#ff7675" }}
-                    thumbColor={priority === 'emergency' ? "#d63031" : "#f4f3f4"}
-                />
-            </View>
+                <Card style={styles.settingsCard} variant="outlined">
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Distribution Settings</Text>
 
-            <TouchableOpacity
-                style={[
-                    styles.sendBtn,
-                    { backgroundColor: priority === 'emergency' ? '#d63031' : '#007AFF' }
-                ]}
-                onPress={handleSend}
-                disabled={loading}
-            >
-                {loading ? (
-                    <ActivityIndicator color="white" />
-                ) : (
-                    <Text style={styles.sendText}>Send Broadcast to All Residents</Text>
-                )}
-            </TouchableOpacity>
+                    <View style={[styles.settingRow, { borderBottomWidth: 0.5, borderBottomColor: colors.border }]}>
+                        <View style={styles.settingInfo}>
+                            <Text style={[styles.settingLabel, { color: colors.text }]}>Dashboard Alert</Text>
+                            <Text style={[styles.settingDesc, { color: colors.subText }]}>Shows as a banner on top</Text>
+                        </View>
+                        <Switch
+                            value={showInBanner}
+                            onValueChange={setShowInBanner}
+                            trackColor={{ false: colors.border, true: colors.primary }}
+                            thumbColor="white"
+                        />
+                    </View>
 
-            <View style={styles.infoBox}>
-                <Text style={styles.infoText}>
-                    Note: This will send a push notification to all {priority === 'emergency' ? 'emergency-aware' : ''} residents in your hostel.
-                </Text>
-            </View>
-        </ScrollView>
+                    <View style={[styles.settingRow, { borderBottomWidth: 0.5, borderBottomColor: colors.border }]}>
+                        <View style={styles.settingInfo}>
+                            <Text style={[styles.settingLabel, { color: colors.text }]}>Community Forum</Text>
+                            <Text style={[styles.settingDesc, { color: colors.subText }]}>Posts in the public feed</Text>
+                        </View>
+                        <Switch
+                            value={showInForum}
+                            onValueChange={setShowInForum}
+                            trackColor={{ false: colors.border, true: colors.primary }}
+                            thumbColor="white"
+                        />
+                    </View>
+
+                    <View style={styles.settingRow}>
+                        <View style={styles.settingInfo}>
+                            <Text style={[styles.settingLabel, { color: '#F43F5E' }]}>緊急事態 (Emergency)</Text>
+                            <Text style={[styles.settingDesc, { color: colors.subText }]}>Mark as critical alert</Text>
+                        </View>
+                        <Switch
+                            value={priority === 'emergency'}
+                            onValueChange={(val) => setPriority(val ? 'emergency' : 'normal')}
+                            trackColor={{ false: colors.border, true: '#F43F5E' }}
+                            thumbColor="white"
+                        />
+                    </View>
+                </Card>
+
+                <TouchableOpacity
+                    style={[
+                        styles.sendBtn,
+                        { backgroundColor: priority === 'emergency' ? '#F43F5E' : colors.primary },
+                        loading && { opacity: 0.7 }
+                    ]}
+                    onPress={handleSend}
+                    disabled={loading}
+                >
+                    {loading ? (
+                        <ActivityIndicator color="white" />
+                    ) : (
+                        <Text style={styles.sendText}>Broadcast to All Residents</Text>
+                    )}
+                </TouchableOpacity>
+
+                <Card style={[styles.infoCard, { backgroundColor: colors.primary + '05', borderColor: colors.primary + '20' }]} variant="outlined">
+                    <Text style={[styles.infoText, { color: colors.subText }]}>
+                        💡 This notification will reach all registered residents via push message and remain in their archives until the expiration date.
+                    </Text>
+                </Card>
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
-        padding: 20,
-        flexGrow: 1,
+        flex: 1,
+    },
+    scrollContent: {
+        padding: Spacing.md,
+        paddingBottom: Spacing.xxl,
+    },
+    formCard: {
+        padding: Spacing.lg,
+        marginBottom: Spacing.md,
+    },
+    sectionTitle: {
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.lg,
+    },
+    inputGroup: {
+        marginBottom: Spacing.md,
     },
     label: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        marginBottom: 8,
-        marginTop: 15,
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1,
+        marginBottom: Spacing.xs,
+        marginLeft: 4,
     },
     input: {
         borderWidth: 1,
-        borderRadius: 10,
-        padding: 15,
-        fontSize: 16,
+        borderRadius: BorderRadius.md,
+        padding: Spacing.md,
+        fontSize: Typography.size.sm,
     },
     textArea: {
-        height: 150,
+        height: 120,
         textAlignVertical: 'top',
     },
-    priorityRow: {
+    settingsCard: {
+        padding: Spacing.lg,
+        marginBottom: Spacing.xl,
+    },
+    settingRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginVertical: 20,
-        padding: 10,
-        backgroundColor: 'rgba(150,150,150,0.1)',
-        borderRadius: 10,
+        paddingVertical: Spacing.md,
+    },
+    settingInfo: {
+        flex: 1,
+    },
+    settingLabel: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.bold,
+        marginBottom: 2,
+    },
+    settingDesc: {
+        fontSize: Typography.size.xs,
     },
     sendBtn: {
-        paddingVertical: 18,
-        borderRadius: 12,
+        paddingVertical: Spacing.lg,
+        borderRadius: BorderRadius.md,
         alignItems: 'center',
-        marginTop: 20,
-        elevation: 3,
+        ...Shadows.md,
+        marginBottom: Spacing.xl,
     },
     sendText: {
         color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
+        fontWeight: Typography.weight.bold,
+        fontSize: Typography.size.md,
     },
-    infoBox: {
-        marginTop: 30,
-        padding: 15,
-        backgroundColor: 'rgba(0,0,0,0.05)',
-        borderRadius: 10,
+    infoCard: {
+        padding: Spacing.md,
+        alignItems: 'center',
     },
     infoText: {
-        fontSize: 12,
-        color: 'gray',
+        fontSize: 11,
         textAlign: 'center',
-        lineHeight: 18,
+        lineHeight: 16,
     }
 });
+

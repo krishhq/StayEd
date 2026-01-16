@@ -10,24 +10,16 @@ import { useTheme } from '../../context/ThemeContext';
 import { getUserByPhone } from '../../services/firestoreService';
 import LoadingScreen from '../../components/LoadingScreen';
 
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
+
 export default function LoginScreen({ navigation }: any) {
-    const { colors } = useTheme();
+    const { colors, theme } = useTheme();
     const { refreshUserData, setNavPaused, isNavPaused } = useAuth();
     const [phoneNumber, setPhoneNumber] = useState('+91');
     const [verificationCode, setVerificationCode] = useState('');
     const [verificationId, setVerificationId] = useState<string | null>(null);
     const recaptchaVerifier = useRef(null);
     const [loading, setLoading] = useState(false);
-    // const auth = getAuth(app); // Removed local getAuth
-
-    // Dynamic Styles
-    const dynamicStyles = {
-        container: { backgroundColor: colors.background },
-        title: { color: colors.text },
-        subtitle: { color: colors.subText },
-        input: { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
-        card: { backgroundColor: colors.card },
-    };
 
     const sendVerification = async () => {
         if (!phoneNumber || phoneNumber === '+91') {
@@ -61,38 +53,27 @@ export default function LoginScreen({ navigation }: any) {
                 verificationId!,
                 verificationCode
             );
-            setNavPaused(true); // Pause navigation BEFORE sign-in
+            setNavPaused(true);
             await signInWithCredential(auth, credential);
-            // AuthContext handles state change automatically
 
-            // Fetch User Role
             const formattedPhone = phoneNumber.startsWith('+91') ? phoneNumber : `+91${phoneNumber}`;
             const userProfile = await getUserByPhone(formattedPhone);
             if (userProfile) {
-                // Check if user doc exists with UID
                 const uid = auth.currentUser!.uid;
                 const userDocRef = doc(db, 'users', uid);
                 const userDocSnap = await getDoc(userDocRef);
 
                 if (!userDocSnap.exists()) {
-                    // MIGRATION REQUIRED: Link Firestore Doc with Auth UID
-                    // The user was registered with a random ID. We need to move it to users/{uid}
                     console.log(`[Login] Migrating user from ${userProfile.id} to ${uid}`);
-
                     try {
-                        // 1. Copy data to new doc (ID = UID)
                         await setDoc(userDocRef, {
                             ...userProfile,
-                            id: uid, // Update ID field
-                            uid: uid // Add UID field
+                            id: uid,
+                            uid: uid
                         });
-
-                        // 2. Delete old doc (ID = Random)
-                        // ONLY delete if the IDs are different (sanity check)
                         if (userProfile.id !== uid) {
                             await deleteDoc(doc(db, 'users', userProfile.id));
                         }
-
                         Alert.alert("Account Linked", "Your profile has been successfully linked!");
                     } catch (migrationError) {
                         console.error("Migration Error:", migrationError);
@@ -100,11 +81,6 @@ export default function LoginScreen({ navigation }: any) {
                     }
                 }
 
-                // Determine screen based on role (handled by RootNavigator via AuthContext)
-                // We just need to ensure AuthContext has the role.
-                // NOTE: In a real app, AuthContext should listen to the user doc.
-                // For now, we manually suggest the role if needed, but context userRole is key.
-                // @ts-ignore
                 Alert.alert(
                     "Welcome",
                     `Logged in as ${userProfile.role}`,
@@ -112,7 +88,7 @@ export default function LoginScreen({ navigation }: any) {
                 );
             } else {
                 Alert.alert("Error", "User not found. Please register.");
-                await auth.signOut(); // Ensure clean slate
+                await auth.signOut();
                 setLoading(false);
             }
         } catch (error: any) {
@@ -122,7 +98,6 @@ export default function LoginScreen({ navigation }: any) {
         }
     };
 
-    // Combine local loading (during auth process) and global loading (during profile fetch)
     const isAppLoading = loading || isNavPaused;
 
     if (isAppLoading) {
@@ -130,26 +105,25 @@ export default function LoginScreen({ navigation }: any) {
     }
 
     return (
-        <View style={[styles.container, dynamicStyles.container]}>
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
             <FirebaseRecaptchaVerifierModal
                 ref={recaptchaVerifier}
                 firebaseConfig={app.options}
             />
 
             <View style={styles.header}>
-                {/* Logo */}
                 <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
-                <Text style={[styles.title, dynamicStyles.title]}>Hostel StayEd</Text>
-                <Text style={[styles.subtitle, dynamicStyles.subtitle]}>Secure & Smart Living</Text>
+                <Text style={[styles.title, { color: colors.text }]}>StayEd</Text>
+                <Text style={[styles.subtitle, { color: colors.subText }]}>Smart Living, Secure Staying</Text>
             </View>
 
-            <View style={[styles.card, dynamicStyles.card]}>
+            <View style={[styles.card, { backgroundColor: colors.card }, theme === 'light' ? Shadows.lg : { borderWidth: 1, borderColor: colors.border }]}>
                 {!verificationId ? (
                     <>
                         <Text style={[styles.label, { color: colors.text }]}>Phone Number</Text>
                         <TextInput
-                            style={[styles.input, dynamicStyles.input]}
-                            placeholder="+91 9876543210"
+                            style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                            placeholder="9876543210"
                             placeholderTextColor={colors.subText}
                             keyboardType="phone-pad"
                             autoComplete="tel"
@@ -164,7 +138,7 @@ export default function LoginScreen({ navigation }: any) {
                             }}
                         />
                         <TouchableOpacity
-                            style={[styles.btn]}
+                            style={[styles.btn, { backgroundColor: colors.primary }]}
                             onPress={sendVerification}
                         >
                             <Text style={styles.btnText}>Send OTP</Text>
@@ -174,33 +148,38 @@ export default function LoginScreen({ navigation }: any) {
                     <>
                         <Text style={[styles.label, { color: colors.text }]}>Enter OTP</Text>
                         <TextInput
-                            style={[styles.input, dynamicStyles.input]}
+                            style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
                             placeholder="123456"
                             placeholderTextColor={colors.subText}
                             keyboardType="number-pad"
                             onChangeText={setVerificationCode}
                         />
                         <TouchableOpacity
-                            style={[styles.btn]}
+                            style={[styles.btn, { backgroundColor: colors.primary }]}
                             onPress={confirmCode}
                         >
                             <Text style={styles.btnText}>Verify & Login</Text>
                         </TouchableOpacity>
                     </>
                 )}
-                {/* Register Hostel Button */}
+
+                <View style={styles.divider}>
+                    <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+                    <Text style={[styles.dividerText, { color: colors.subText }]}>OR</Text>
+                    <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+                </View>
+
                 <TouchableOpacity
-                    style={styles.registerHostelBtn}
+                    style={[styles.registerHostelBtn, { borderColor: colors.success }]}
                     onPress={() => navigation.navigate('HostelRegistration')}
                 >
-                    <Text style={styles.registerHostelText}>🏢 Register Your Hostel/PG</Text>
+                    <Text style={[styles.registerHostelText, { color: colors.success }]}>🏢 Register Your Hostel/PG</Text>
                 </TouchableOpacity>
 
-                {/* Dev Mode Login Button */}
                 <TouchableOpacity
                     style={styles.devBtn}
                     onPress={async () => {
-                        if (!phoneNumber) {
+                        if (!phoneNumber || phoneNumber === '+91') {
                             Alert.alert("Error", "Please enter phone number first");
                             return;
                         }
@@ -208,43 +187,32 @@ export default function LoginScreen({ navigation }: any) {
                         setLoading(true);
                         try {
                             const formattedPhone = phoneNumber.startsWith('+91') ? phoneNumber : `+91${phoneNumber}`;
-                            console.log(`[LoginScreen] Dev Mode attempt. Current Auth User: ${auth.currentUser?.uid || 'None'}`);
-                            console.log(`[LoginScreen] Querying for phone: ${formattedPhone}`);
-
-                            setNavPaused(true); // Pause navigation BEFORE dev login
-                            // 1. Sign in anonymously FIRST to be authenticated for the lookup
+                            setNavPaused(true);
                             const userCredential = await signInAnonymously(auth);
                             const uid = userCredential.user.uid;
 
-                            // 2. NOW authenticated, lookup user by phone
                             const userProfile = await getUserByPhone(formattedPhone);
                             if (!userProfile) {
-                                console.warn(`[LoginScreen] No userProfile found for ${formattedPhone}`);
-                                Alert.alert("Error", "No user found with this phone number. Please register first.");
-                                // Logout if we shouldn't be here
+                                Alert.alert("Error", "No user found with this phone number.");
                                 await auth.signOut();
                                 setLoading(false);
                                 return;
                             }
-                            console.log(`[LoginScreen] Found profile for ${userProfile.role}: ${userProfile.name}`);
 
-                            // Use AuthContext to perform migration and refresh state
                             await refreshUserData(uid, formattedPhone);
 
-                            setNavPaused(true);
                             Alert.alert(
                                 "Dev Login Success",
                                 `Logged in as ${userProfile.role}`,
                                 [{ text: "OK", onPress: () => setNavPaused(false) }]
                             );
                         } catch (error: any) {
-                            console.error("[LoginScreen] Dev Login Error:", error);
                             Alert.alert("Error", error.message);
                             setLoading(false);
                         }
                     }}
                 >
-                    <Text style={styles.devBtnText}>[Dev] Skip OTP & Login</Text>
+                    <Text style={[styles.devBtnText, { color: colors.subText }]}>[Dev] Skip OTP & Login</Text>
                 </TouchableOpacity>
             </View>
         </View>
@@ -255,89 +223,87 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         justifyContent: 'center',
-        padding: 20,
+        padding: Spacing.xl,
     },
     header: {
         alignItems: 'center',
-        marginBottom: 30,
+        marginBottom: Spacing.xxl,
     },
     logo: {
         width: 100,
         height: 100,
-        marginBottom: 10,
-        borderRadius: 20,
+        marginBottom: Spacing.md,
+        borderRadius: BorderRadius.xxl,
     },
     title: {
-        fontSize: 32,
-        fontWeight: 'bold',
-        marginBottom: 5,
+        fontSize: Typography.size.xxxl,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: -1,
     },
     subtitle: {
-        fontSize: 16,
+        fontSize: Typography.size.md,
+        marginTop: Spacing.xs,
     },
     card: {
-        padding: 25,
-        borderRadius: 15,
-        elevation: 5,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
+        padding: Spacing.xl,
+        borderRadius: BorderRadius.xxl,
     },
     label: {
-        fontWeight: 'bold',
-        marginBottom: 5,
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.semibold,
+        marginBottom: Spacing.sm,
+        marginLeft: Spacing.xs,
     },
     input: {
         borderWidth: 1,
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 20,
-        fontSize: 16,
+        borderRadius: BorderRadius.lg,
+        padding: Spacing.md,
+        marginBottom: Spacing.lg,
+        fontSize: Typography.size.md,
     },
     btn: {
-        backgroundColor: '#007AFF',
-        padding: 15,
-        borderRadius: 10,
+        padding: Spacing.md,
+        borderRadius: BorderRadius.lg,
         alignItems: 'center',
-    },
-    btnDisabled: {
-        opacity: 0.7,
+        ...Shadows.md,
     },
     btnText: {
         color: 'white',
-        fontWeight: 'bold',
-        fontSize: 16,
+        fontWeight: Typography.weight.bold,
+        fontSize: Typography.size.md,
     },
-    simBtn: {
-        padding: 10,
-        borderRadius: 5,
+    divider: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginVertical: Spacing.xl,
+    },
+    dividerLine: {
+        flex: 1,
+        height: 1,
+    },
+    dividerText: {
+        marginHorizontal: Spacing.md,
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
     },
     registerHostelBtn: {
-        marginTop: 30,
-        backgroundColor: '#27ae60',
-        padding: 15,
-        borderRadius: 10,
+        borderWidth: 1.5,
+        padding: Spacing.md,
+        borderRadius: BorderRadius.lg,
         alignItems: 'center',
-        elevation: 3,
     },
     registerHostelText: {
-        color: 'white',
-        fontSize: 16,
-        fontWeight: 'bold',
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
     },
     devBtn: {
-        marginTop: 15,
-        backgroundColor: '#e74c3c',
-        padding: 12,
-        borderRadius: 8,
+        marginTop: Spacing.xl,
         alignItems: 'center',
-        borderWidth: 2,
-        borderColor: '#c0392b',
     },
     devBtnText: {
-        color: 'white',
-        fontSize: 14,
-        fontWeight: 'bold',
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.medium,
+        textDecorationLine: 'underline',
     },
 });
+

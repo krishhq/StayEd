@@ -4,33 +4,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../config/firebaseConfig';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import LoadingScreen from '../../components/LoadingScreen';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
+import { useNavigation } from '@react-navigation/native';
 
 export default function ProfileScreen() {
     const { user, userData, userRole, hostelId, residentId, linkedResidentId } = useAuth();
     const { colors } = useTheme();
+    const navigation = useNavigation();
     const [extraData, setExtraData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
 
-    // Dynamic Styles
-    const dynamicStyles = {
-        container: { backgroundColor: colors.background },
-        text: { color: colors.text },
-        card: { backgroundColor: colors.card, borderColor: colors.border },
-        sectionTitle: { color: colors.primary, borderBottomColor: colors.border },
-        label: { color: colors.subText },
-        value: { color: colors.text },
-        header: { color: colors.text }
-    };
-
     useEffect(() => {
         const fetchExtraDetails = async () => {
-            if (!user) {
-                setLoading(false);
-                return;
-            }
-
+            if (!user) { setLoading(false); return; }
             try {
                 if (userRole === 'resident' && residentId) {
                     const resSnap = await getDoc(doc(db, 'residents', residentId));
@@ -39,9 +29,7 @@ export default function ProfileScreen() {
                         let hostelInfo = null;
                         if (resData.hostelId) {
                             const hDoc = await getDoc(doc(db, 'hostels', resData.hostelId));
-                            if (hDoc.exists()) {
-                                hostelInfo = hDoc.data();
-                            }
+                            if (hDoc.exists()) { hostelInfo = hDoc.data(); }
                         }
                         setExtraData({ ...resData, hostel: hostelInfo });
                     }
@@ -59,9 +47,7 @@ export default function ProfileScreen() {
                         let hostelInfo = null;
                         if (wardData.hostelId) {
                             const hDoc = await getDoc(doc(db, 'hostels', wardData.hostelId));
-                            if (hDoc.exists()) {
-                                hostelInfo = hDoc.data();
-                            }
+                            if (hDoc.exists()) { hostelInfo = hDoc.data(); }
                         }
                         setExtraData({ ward: { ...wardData, hostel: hostelInfo } });
                     }
@@ -72,154 +58,158 @@ export default function ProfileScreen() {
                 setLoading(false);
             }
         };
-
         fetchExtraDetails();
     }, [user, userRole, hostelId, userData, residentId, linkedResidentId]);
 
-    if (loading) {
-        return <LoadingScreen message="Fetching profile details..." />;
-    }
+    if (loading) return <LoadingScreen message="Refining your profile..." />;
 
     const renderDetail = (label: string, value: string | undefined) => (
         <View style={styles.detailRow}>
-            <Text style={[styles.label, dynamicStyles.label]}>{label}</Text>
-            <Text style={[styles.value, dynamicStyles.value]}>{value || '-'}</Text>
+            <Text style={[styles.label, { color: colors.subText }]}>{label.toUpperCase()}</Text>
+            <Text style={[styles.value, { color: colors.text }]}>{value || '-'}</Text>
+        </View>
+    );
+
+    const ProfileSection = ({ title, children }: { title: string, children: React.ReactNode }) => (
+        <View style={styles.section}>
+            <Text style={[styles.sectionHeader, { color: colors.subText }]}>{title}</Text>
+            <Card style={styles.profileCard} variant="outlined">
+                {children}
+            </Card>
         </View>
     );
 
     return (
-        <SafeAreaView style={[styles.safeArea, dynamicStyles.container]} edges={['top', 'left', 'right']}>
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                <Text style={[styles.header, dynamicStyles.header]}>My Profile</Text>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title="Account" onBackPress={() => navigation.goBack()} />
 
-                {/* Basic Info */}
-                <View style={[styles.card, dynamicStyles.card]}>
-                    <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>Account Details</Text>
-                    {renderDetail('Name', userData?.name)}
-                    {renderDetail('Role', userRole?.toUpperCase())}
-                    {renderDetail('Phone', user?.phoneNumber || userData?.phone)}
-                    {renderDetail('Email', userData?.email)}
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.header}>
+                    <View style={[styles.avatar, { backgroundColor: colors.primary + '15', borderColor: colors.primary + '30' }]}>
+                        <Text style={[styles.avatarText, { color: colors.primary }]}>{userData?.name?.charAt(0) || userRole?.charAt(0).toUpperCase()}</Text>
+                    </View>
+                    <Text style={[styles.userName, { color: colors.text }]}>{userData?.name}</Text>
+                    <View style={[styles.roleBadge, { backgroundColor: colors.primary }]}>
+                        <Text style={styles.roleText}>{userRole?.toUpperCase()}</Text>
+                    </View>
                 </View>
 
-                {/* Role-Specific Info */}
+                <ProfileSection title="Contact Information">
+                    {renderDetail('Phone Number', user?.phoneNumber || userData?.phone)}
+                    {renderDetail('Email Address', userData?.email)}
+                </ProfileSection>
+
                 {userRole === 'resident' && extraData && (
                     <>
-                        <View style={[styles.card, dynamicStyles.card]}>
-                            <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>Stay Details</Text>
-                            {renderDetail('Room No', extraData.room || extraData.roomNumber)}
-                            {renderDetail('Aadhar Card', extraData.aadharCard)}
-                        </View>
+                        <ProfileSection title="Campus Identity">
+                            {renderDetail('Room Number', extraData.room || extraData.roomNumber)}
+                            {renderDetail('Aadhar ID', extraData.aadharCard)}
+                            {renderDetail('Hostel', extraData.hostel?.name)}
+                        </ProfileSection>
 
-                        {extraData.hostel && (
-                            <View style={[styles.card, dynamicStyles.card]}>
-                                <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>Hostel Details</Text>
-                                {renderDetail('Hostel Name', extraData.hostel.name)}
-                                {renderDetail('Hostel Address', extraData.hostel.address)}
-                            </View>
-                        )}
-
-                        <View style={[styles.card, dynamicStyles.card]}>
-                            <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>Guardian Details</Text>
-                            {renderDetail('Guardian Name', extraData.guardianName)}
+                        <ProfileSection title="Family & Permanent Records">
+                            {renderDetail('Guardian', extraData.guardianName)}
                             {renderDetail('Guardian Phone', extraData.guardianPhone)}
-                        </View>
-
-                        <View style={[styles.card, dynamicStyles.card]}>
-                            <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>Address</Text>
-                            {renderDetail('Permanent Address', extraData.permanentAddress)}
-                        </View>
+                            {renderDetail('Home Address', extraData.permanentAddress)}
+                        </ProfileSection>
                     </>
                 )}
 
                 {userRole === 'admin' && extraData && (
-                    <View style={[styles.card, dynamicStyles.card]}>
-                        <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>Hostel Administration</Text>
+                    <ProfileSection title="Administrative Authority">
                         {renderDetail('Managed Hostel', extraData.hostelName)}
-                        {renderDetail('Hostel Address', extraData.address)}
-                    </View>
+                        {renderDetail('Campus Address', extraData.address)}
+                    </ProfileSection>
                 )}
 
                 {userRole === 'guardian' && extraData?.ward && (
                     <>
-                        <View style={[styles.card, dynamicStyles.card]}>
-                            <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>Ward Details</Text>
+                        <ProfileSection title="Student Details">
                             {renderDetail('Ward Name', extraData.ward.name)}
-                            {renderDetail('Ward Room', extraData.ward.room || extraData.ward.roomNumber)}
-                            {renderDetail('Ward Phone', extraData.ward.phone)}
-                        </View>
+                            {renderDetail('Room', extraData.ward.room || extraData.ward.roomNumber)}
+                            {renderDetail('Ward Contact', extraData.ward.phone)}
+                        </ProfileSection>
 
-                        <View style={[styles.card, dynamicStyles.card]}>
-                            <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>Ward Stay Details</Text>
-                            {renderDetail('Hostel Name', extraData.ward.hostel?.name)}
-                            {renderDetail('Hostel Address', extraData.ward.hostel?.address)}
-                            {renderDetail('Permanent Address', extraData.ward.permanentAddress)}
-                        </View>
+                        <ProfileSection title="Stay Information">
+                            {renderDetail('Hostel', extraData.ward.hostel?.name)}
+                            {renderDetail('Campus Address', extraData.ward.hostel?.address)}
+                        </ProfileSection>
                     </>
                 )}
-
             </ScrollView>
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
+    container: {
         flex: 1,
     },
     scrollContent: {
-        padding: 20,
-        flexGrow: 1,
-    },
-    container: {
-        padding: 20,
-        flexGrow: 1,
-    },
-    center: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
+        padding: Spacing.md,
+        paddingBottom: Spacing.xxl,
     },
     header: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        marginBottom: 20,
+        alignItems: 'center',
+        paddingVertical: Spacing.xl,
+        marginBottom: Spacing.lg,
     },
-    card: {
-        padding: 20,
-        borderRadius: 15,
-        marginBottom: 20,
-        elevation: 3,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
+    avatar: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        marginBottom: Spacing.md,
     },
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 15,
-        borderBottomWidth: 1,
-        paddingBottom: 5,
+    avatarText: {
+        fontSize: 32,
+        fontWeight: Typography.weight.bold,
+    },
+    userName: {
+        fontSize: Typography.size.lg,
+        fontWeight: Typography.weight.bold,
+        marginBottom: 8,
+    },
+    roleBadge: {
+        paddingHorizontal: 12,
+        paddingVertical: 4,
+        borderRadius: BorderRadius.full,
+    },
+    roleText: {
+        color: 'white',
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1,
+    },
+    section: {
+        marginBottom: Spacing.lg,
+    },
+    sectionHeader: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1,
+        marginLeft: 8,
+        marginBottom: 8,
+    },
+    profileCard: {
+        padding: Spacing.lg,
     },
     detailRow: {
-        marginBottom: 12,
+        marginBottom: Spacing.md,
     },
     label: {
-        fontSize: 12,
-        fontWeight: '600',
-        marginBottom: 2,
+        fontSize: 9,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 0.5,
+        marginBottom: 4,
+        opacity: 0.6,
     },
     value: {
-        fontSize: 16,
-        fontWeight: '500',
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.semibold,
     },
-    errorText: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        marginBottom: 10,
-    },
-    subText: {
-        textAlign: 'center',
-    }
 });
+
+

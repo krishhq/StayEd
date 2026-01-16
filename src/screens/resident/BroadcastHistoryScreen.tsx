@@ -1,20 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { getRecentBroadcasts, Broadcast } from '../../services/firestoreService';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
 export default function BroadcastHistoryScreen() {
     const { hostelId } = useAuth();
     const { colors } = useTheme();
+    const navigation = useNavigation();
     const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
     const [loading, setLoading] = useState(true);
-
-    const dynamicStyles = {
-        container: { backgroundColor: colors.background },
-        text: { color: colors.text },
-        card: { backgroundColor: colors.card, borderColor: colors.border },
-    };
 
     useEffect(() => {
         const fetchBroadcasts = async () => {
@@ -33,34 +33,47 @@ export default function BroadcastHistoryScreen() {
     }, [hostelId]);
 
     const renderItem = ({ item }: { item: Broadcast }) => (
-        <View style={[styles.card, dynamicStyles.card, item.priority === 'emergency' && styles.emergencyCard]}>
-            <View style={styles.header}>
-                <Text style={[styles.type, item.priority === 'emergency' ? styles.emergencyText : styles.normalText]}>
-                    {item.priority === 'emergency' ? '🚨 EMERGENCY' : '📢 GENERAL'}
-                </Text>
-                <Text style={styles.date}>{item.createdAt?.toDate().toLocaleDateString()}</Text>
+        <Card
+            style={[styles.card, item.priority === 'emergency' && { borderColor: '#F43F5E', borderLeftWidth: 4 }]}
+            variant="outlined"
+        >
+            <View style={styles.cardHeader}>
+                <View style={[styles.badge, { backgroundColor: item.priority === 'emergency' ? '#F43F5E20' : colors.primary + '20' }]}>
+                    <Text style={[styles.badgeText, { color: item.priority === 'emergency' ? '#F43F5E' : colors.primary }]}>
+                        {item.priority === 'emergency' ? '🚨 EMERGENCY' : '📢 OFFICIAL'}
+                    </Text>
+                </View>
+                <Text style={[styles.date, { color: colors.subText }]}>{item.createdAt?.toDate().toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</Text>
             </View>
-            <Text style={[styles.title, dynamicStyles.text]}>{item.title}</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{item.title}</Text>
             <Text style={[styles.message, { color: colors.subText }]}>{item.message}</Text>
-        </View>
+        </Card>
     );
 
     return (
-        <View style={[styles.container, dynamicStyles.container]}>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title="Notices" onBackPress={() => navigation.goBack()} />
+
             {loading ? (
-                <ActivityIndicator style={{ flex: 1 }} />
+                <View style={styles.center}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
             ) : (
                 <FlatList
                     data={broadcasts}
                     keyExtractor={(item) => item.id!}
                     renderItem={renderItem}
                     contentContainerStyle={styles.list}
+                    showsVerticalScrollIndicator={false}
                     ListEmptyComponent={
-                        <Text style={[styles.empty, { color: colors.subText }]}>No broadcasts yet</Text>
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyIcon}>📭</Text>
+                            <Text style={[styles.emptyText, { color: colors.subText }]}>No official notices yet</Text>
+                        </View>
                     }
                 />
             )}
-        </View>
+        </SafeAreaView>
     );
 }
 
@@ -68,52 +81,60 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
     },
+    center: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
     list: {
-        padding: 15,
+        padding: Spacing.md,
+        paddingBottom: Spacing.xl,
     },
     card: {
-        padding: 20,
-        borderRadius: 12,
-        marginBottom: 15,
-        borderWidth: 1,
-        elevation: 2,
+        padding: Spacing.lg,
+        marginBottom: Spacing.md,
     },
-    emergencyCard: {
-        borderColor: '#d63031',
-        borderLeftWidth: 5,
-    },
-    header: {
+    cardHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: 8,
+        alignItems: 'center',
+        marginBottom: Spacing.md,
     },
-    type: {
+    badge: {
+        paddingHorizontal: Spacing.sm,
+        paddingVertical: 4,
+        borderRadius: BorderRadius.sm,
+    },
+    badgeText: {
         fontSize: 10,
-        fontWeight: 'bold',
-        letterSpacing: 1,
-    },
-    normalText: {
-        color: '#007AFF',
-    },
-    emergencyText: {
-        color: '#d63031',
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 0.5,
     },
     date: {
-        fontSize: 10,
-        color: 'gray',
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.medium,
     },
     title: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 5,
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.xs,
     },
     message: {
-        fontSize: 14,
+        fontSize: Typography.size.sm,
         lineHeight: 20,
     },
-    empty: {
-        textAlign: 'center',
-        marginTop: 50,
-        fontSize: 16,
+    emptyContainer: {
+        marginTop: 100,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    emptyIcon: {
+        fontSize: 48,
+        marginBottom: Spacing.md,
+    },
+    emptyText: {
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.medium,
     }
 });
+

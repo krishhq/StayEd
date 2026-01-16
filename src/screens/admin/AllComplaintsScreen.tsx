@@ -1,13 +1,20 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, Button } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { getComplaintsByHostel, updateComplaintStatus, Complaint } from '../../services/firestoreService';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
 type StatusFilter = 'all' | 'pending' | 'in-progress' | 'resolved';
 
 export default function AllComplaintsScreen() {
     const { hostelId } = useAuth();
+    const { colors } = useTheme();
+    const navigation = useNavigation();
     const [complaints, setComplaints] = useState<Complaint[]>([]);
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -16,17 +23,14 @@ export default function AllComplaintsScreen() {
 
     const fetchComplaints = async () => {
         if (!hostelId) {
-            console.log("[AllComplaints] No hostelId available");
             setLoading(false);
             return;
         }
 
-        console.log(`[AllComplaints] Fetching for hostel: ${hostelId}, filter: ${statusFilter}`);
         setLoading(true);
         try {
             const filter = statusFilter === 'all' ? undefined : statusFilter;
             const fetched = await getComplaintsByHostel(hostelId, filter);
-            console.log(`[AllComplaints] Found ${fetched.length} complaints`);
             setComplaints(fetched);
         } catch (error: any) {
             console.error("[AllComplaints] Error:", error);
@@ -37,7 +41,7 @@ export default function AllComplaintsScreen() {
     };
 
     useFocusEffect(
-        React.useCallback(() => {
+        useCallback(() => {
             fetchComplaints();
         }, [hostelId, statusFilter])
     );
@@ -61,10 +65,10 @@ export default function AllComplaintsScreen() {
 
     const getStatusColor = (status: string) => {
         switch (status) {
-            case 'pending': return '#FFA500';
-            case 'in-progress': return '#007AFF';
-            case 'resolved': return '#34C759';
-            default: return '#999';
+            case 'pending': return '#F59E0B';
+            case 'in-progress': return '#3B82F6';
+            case 'resolved': return '#10B981';
+            default: return '#6B7280';
         }
     };
 
@@ -75,69 +79,66 @@ export default function AllComplaintsScreen() {
         }
     };
 
-    const renderTabButton = (filter: StatusFilter, label: string, count?: number) => {
+    const renderTabButton = (filter: StatusFilter, label: string) => {
         const isActive = statusFilter === filter;
         return (
             <TouchableOpacity
-                style={[styles.tabButton, isActive && styles.activeTab]}
+                style={[styles.tabButton, isActive && { backgroundColor: colors.primary }]}
                 onPress={() => setStatusFilter(filter)}
             >
-                <Text style={[styles.tabText, isActive && styles.activeTabText]}>
-                    {label} {count !== undefined && `(${count})`}
+                <Text style={[styles.tabText, { color: isActive ? 'white' : colors.subText }]}>
+                    {label}
                 </Text>
             </TouchableOpacity>
         );
     };
 
     const renderItem = ({ item }: { item: Complaint }) => (
-        <TouchableOpacity style={styles.card} onPress={() => openDetailModal(item)}>
-            <View style={styles.headerRow}>
-                <Text style={styles.residentName}>👤 {item.residentName}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-                    <Text style={styles.statusText}>{getStatusLabel(item.status)}</Text>
+        <Card style={styles.card} onPress={() => openDetailModal(item)} variant="elevated">
+            <View style={styles.cardHeader}>
+                <View style={styles.residentInfo}>
+                    <Text style={[styles.residentName, { color: colors.text }]}>{item.residentName}</Text>
+                    <Text style={[styles.date, { color: colors.subText }]}>
+                        {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : 'N/A'}
+                    </Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
+                    <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>{getStatusLabel(item.status)}</Text>
                 </View>
             </View>
 
-            <View style={styles.categoryRow}>
-                <Text style={styles.category}>📁 {item.category}</Text>
-                <Text style={styles.priority}>
-                    {item.priority === 'high' ? '🔴' : item.priority === 'medium' ? '🟡' : '🟢'} {item.priority}
-                </Text>
+            <View style={styles.metaRow}>
+                <View style={[styles.categoryBadge, { backgroundColor: colors.background }]}>
+                    <Text style={[styles.categoryText, { color: colors.subText }]}>📁 {item.category}</Text>
+                </View>
+                {item.priority === 'high' && (
+                    <View style={[styles.priorityBadge, { backgroundColor: '#F43F5E20' }]}>
+                        <Text style={[styles.priorityText, { color: '#F43F5E' }]}>Critical</Text>
+                    </View>
+                )}
             </View>
 
-            <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
-
-            <Text style={styles.date}>
-                {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleString() : 'Date N/A'}
-            </Text>
-        </TouchableOpacity>
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>{item.title}</Text>
+            <Text style={[styles.description, { color: colors.subText }]} numberOfLines={2}>{item.description}</Text>
+        </Card>
     );
 
-    const getCounts = () => {
-        return {
-            all: complaints.length,
-            pending: complaints.filter(c => c.status === 'pending').length,
-            inProgress: complaints.filter(c => c.status === 'in-progress').length,
-            resolved: complaints.filter(c => c.status === 'resolved').length,
-        };
-    };
-
-    const counts = getCounts();
-
     return (
-        <View style={styles.container}>
-            {/* Status Filter Tabs */}
-            <View style={styles.tabContainer}>
-                {renderTabButton('all', 'All', counts.all)}
-                {renderTabButton('pending', 'Pending', counts.pending)}
-                {renderTabButton('in-progress', 'In Progress', counts.inProgress)}
-                {renderTabButton('resolved', 'Resolved', counts.resolved)}
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title="Complaints Registry" onBackPress={() => navigation.goBack()} />
+
+            <View style={styles.tabsWrapper}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabContainer}>
+                    {renderTabButton('all', 'All')}
+                    {renderTabButton('pending', 'Pending')}
+                    {renderTabButton('in-progress', 'In Progress')}
+                    {renderTabButton('resolved', 'Resolved')}
+                </ScrollView>
             </View>
 
             {loading ? (
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#007AFF" />
+                <View style={styles.center}>
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
             ) : (
                 <FlatList
@@ -145,285 +146,279 @@ export default function AllComplaintsScreen() {
                     keyExtractor={(item) => item.id || ''}
                     renderItem={renderItem}
                     contentContainerStyle={styles.list}
-                    ListEmptyComponent={<Text style={styles.empty}>No complaints found.</Text>}
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyIcon}>✅</Text>
+                            <Text style={[styles.emptyText, { color: colors.subText }]}>No complaints to show</Text>
+                        </View>
+                    }
                     refreshing={loading}
                     onRefresh={fetchComplaints}
                 />
             )}
 
-            {/* Detail Modal */}
             <Modal
                 visible={selectedComplaint !== null}
                 transparent
-                animationType="slide"
+                animationType="fade"
                 onRequestClose={() => setSelectedComplaint(null)}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
                         {selectedComplaint && (
-                            <>
-                                <Text style={styles.modalTitle}>Complaint Details</Text>
-
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>Resident:</Text>
-                                    <Text style={styles.detailValue}>{selectedComplaint.residentName}</Text>
+                            <ScrollView showsVerticalScrollIndicator={false}>
+                                <View style={styles.modalHeader}>
+                                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedComplaint.status) + '20' }]}>
+                                        <Text style={[styles.statusText, { color: getStatusColor(selectedComplaint.status) }]}>{getStatusLabel(selectedComplaint.status)}</Text>
+                                    </View>
+                                    <TouchableOpacity onPress={() => setSelectedComplaint(null)} style={styles.closeIcon}>
+                                        <Text style={{ color: colors.subText, fontSize: 20 }}>✕</Text>
+                                    </TouchableOpacity>
                                 </View>
 
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>Category:</Text>
-                                    <Text style={styles.detailValue}>{selectedComplaint.category}</Text>
-                                </View>
+                                <Text style={[styles.modalTitle, { color: colors.text }]}>{selectedComplaint.title}</Text>
+                                <Text style={[styles.modalDesc, { color: colors.subText }]}>{selectedComplaint.description}</Text>
 
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>Priority:</Text>
-                                    <Text style={styles.detailValue}>{selectedComplaint.priority}</Text>
-                                </View>
-
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>Status:</Text>
-                                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedComplaint.status) }]}>
-                                        <Text style={styles.statusText}>{getStatusLabel(selectedComplaint.status)}</Text>
+                                <View style={[styles.detailSection, { borderTopColor: colors.border }]}>
+                                    <View style={styles.detailRow}>
+                                        <Text style={[styles.detailLabel, { color: colors.subText }]}>RESIDENT</Text>
+                                        <Text style={[styles.detailValue, { color: colors.text }]}>{selectedComplaint.residentName}</Text>
+                                    </View>
+                                    <View style={styles.detailRow}>
+                                        <Text style={[styles.detailLabel, { color: colors.subText }]}>CATEGORY</Text>
+                                        <Text style={[styles.detailValue, { color: colors.text }]}>{selectedComplaint.category}</Text>
+                                    </View>
+                                    <View style={styles.detailRow}>
+                                        <Text style={[styles.detailLabel, { color: colors.subText }]}>PRIORITY</Text>
+                                        <Text style={[styles.detailValue, { color: selectedComplaint.priority === 'high' ? '#F43F5E' : colors.text }]}>{selectedComplaint.priority.toUpperCase()}</Text>
                                     </View>
                                 </View>
 
-                                <Text style={styles.detailLabel}>Title:</Text>
-                                <Text style={styles.modalDescription}>{selectedComplaint.title}</Text>
-
-                                <Text style={styles.detailLabel}>Description:</Text>
-                                <Text style={styles.modalDescription}>{selectedComplaint.description}</Text>
-
-                                <Text style={styles.detailLabel}>Admin Notes:</Text>
-                                <TextInput
-                                    style={styles.notesInput}
-                                    value={adminNotes}
-                                    onChangeText={setAdminNotes}
-                                    placeholder="Add notes for the resident..."
-                                    multiline
-                                    numberOfLines={3}
-                                />
-
-                                <Text style={styles.detailLabel}>Update Status:</Text>
-                                <View style={styles.statusButtons}>
-                                    <TouchableOpacity
-                                        style={[styles.statusButton, { backgroundColor: '#FFA500' }]}
-                                        onPress={() => handleStatusUpdate(selectedComplaint.id!, 'pending')}
-                                    >
-                                        <Text style={styles.statusButtonText}>Pending</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={[styles.statusButton, { backgroundColor: '#007AFF' }]}
-                                        onPress={() => handleStatusUpdate(selectedComplaint.id!, 'in-progress')}
-                                    >
-                                        <Text style={styles.statusButtonText}>In Progress</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={[styles.statusButton, { backgroundColor: '#34C759' }]}
-                                        onPress={() => handleStatusUpdate(selectedComplaint.id!, 'resolved')}
-                                    >
-                                        <Text style={styles.statusButtonText}>Resolved</Text>
-                                    </TouchableOpacity>
+                                <View style={styles.notesSection}>
+                                    <Text style={[styles.detailLabel, { color: colors.subText }]}>ADMIN RESOLUTION NOTES</Text>
+                                    <TextInput
+                                        style={[styles.notesInput, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                                        value={adminNotes}
+                                        onChangeText={setAdminNotes}
+                                        placeholder="Add private notes or resolution details..."
+                                        placeholderTextColor={colors.subText + '50'}
+                                        multiline
+                                        numberOfLines={4}
+                                    />
                                 </View>
 
-                                <TouchableOpacity
-                                    style={styles.closeButton}
-                                    onPress={() => setSelectedComplaint(null)}
-                                >
-                                    <Text style={styles.closeButtonText}>Close</Text>
-                                </TouchableOpacity>
-                            </>
+                                <View style={styles.actionSection}>
+                                    <Text style={[styles.detailLabel, { color: colors.subText, marginBottom: Spacing.sm }]}>UPDATE STATUS</Text>
+                                    <View style={styles.statusGrid}>
+                                        <TouchableOpacity
+                                            style={[styles.actionBtn, { borderColor: '#F59E0B' }]}
+                                            onPress={() => handleStatusUpdate(selectedComplaint.id!, 'pending')}
+                                        >
+                                            <Text style={{ color: '#F59E0B', fontWeight: 'bold', fontSize: 12 }}>PENDING</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.actionBtn, { borderColor: '#3B82F6' }]}
+                                            onPress={() => handleStatusUpdate(selectedComplaint.id!, 'in-progress')}
+                                        >
+                                            <Text style={{ color: '#3B82F6', fontWeight: 'bold', fontSize: 12 }}>IN PROGRESS</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.actionBtn, { borderColor: '#10B981', backgroundColor: '#10B98110' }]}
+                                            onPress={() => handleStatusUpdate(selectedComplaint.id!, 'resolved')}
+                                        >
+                                            <Text style={{ color: '#10B981', fontWeight: 'bold', fontSize: 12 }}>RESOLVE</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            </ScrollView>
                         )}
                     </View>
                 </View>
             </Modal>
-        </View>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+    },
+    tabsWrapper: {
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
     },
     tabContainer: {
-        flexDirection: 'row',
-        backgroundColor: 'white',
-        paddingVertical: 10,
-        paddingHorizontal: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#ddd',
+        paddingVertical: Spacing.md,
+        paddingHorizontal: Spacing.md,
+        gap: Spacing.sm,
     },
     tabButton: {
-        flex: 1,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        marginHorizontal: 4,
-        borderRadius: 20,
-        backgroundColor: '#f0f0f0',
-        alignItems: 'center',
-    },
-    activeTab: {
-        backgroundColor: '#007AFF',
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.sm,
+        borderRadius: BorderRadius.full,
+        backgroundColor: '#F3F4F6',
     },
     tabText: {
-        fontSize: 12,
-        color: '#666',
-        fontWeight: '600',
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
     },
-    activeTabText: {
-        color: 'white',
+    list: {
+        padding: Spacing.md,
+        paddingBottom: Spacing.xl,
     },
-    loadingContainer: {
+    card: {
+        padding: Spacing.lg,
+        marginBottom: Spacing.md,
+    },
+    cardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: Spacing.md,
+    },
+    residentInfo: {
+        flex: 1,
+    },
+    residentName: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.bold,
+    },
+    date: {
+        fontSize: Typography.size.xs,
+        marginTop: 2,
+    },
+    statusBadge: {
+        paddingHorizontal: Spacing.sm,
+        paddingVertical: 4,
+        borderRadius: BorderRadius.sm,
+    },
+    statusText: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+    },
+    metaRow: {
+        flexDirection: 'row',
+        gap: Spacing.sm,
+        marginBottom: Spacing.md,
+    },
+    categoryBadge: {
+        paddingHorizontal: Spacing.sm,
+        paddingVertical: 4,
+        borderRadius: BorderRadius.sm,
+    },
+    categoryText: {
+        fontSize: 10,
+        fontWeight: Typography.weight.medium,
+    },
+    priorityBadge: {
+        paddingHorizontal: Spacing.sm,
+        paddingVertical: 4,
+        borderRadius: BorderRadius.sm,
+    },
+    priorityText: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+    },
+    title: {
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.xs,
+    },
+    description: {
+        fontSize: Typography.size.sm,
+        lineHeight: 20,
+    },
+    center: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    list: {
-        padding: 15,
-    },
-    card: {
-        backgroundColor: 'white',
-        padding: 15,
-        borderRadius: 10,
-        marginBottom: 12,
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-    },
-    headerRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+    emptyContainer: {
+        marginTop: 100,
         alignItems: 'center',
-        marginBottom: 8,
     },
-    residentName: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#333',
+    emptyIcon: {
+        fontSize: 48,
+        marginBottom: Spacing.md,
     },
-    statusBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 12,
-    },
-    statusText: {
-        color: 'white',
-        fontSize: 11,
-        fontWeight: 'bold',
-    },
-    categoryRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 8,
-    },
-    category: {
-        fontSize: 12,
-        color: '#666',
-        textTransform: 'capitalize',
-    },
-    priority: {
-        fontSize: 12,
-        color: '#666',
-        textTransform: 'capitalize',
-    },
-    title: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        marginBottom: 6,
-        color: '#333',
-    },
-    description: {
-        color: '#555',
-        marginBottom: 8,
-        fontSize: 14,
-    },
-    date: {
-        fontSize: 11,
-        color: '#999',
-    },
-    empty: {
-        textAlign: 'center',
-        marginTop: 50,
-        color: '#999',
-        fontSize: 16,
+    emptyText: {
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.medium,
     },
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        justifyContent: 'flex-end',
     },
     modalContent: {
-        backgroundColor: 'white',
-        borderRadius: 15,
-        padding: 20,
-        width: '90%',
-        maxHeight: '80%',
+        borderTopLeftRadius: BorderRadius.xl,
+        borderTopRightRadius: BorderRadius.xl,
+        padding: Spacing.xl,
+        minHeight: '60%',
+        maxHeight: '90%',
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: Spacing.lg,
+    },
+    closeIcon: {
+        padding: 4,
     },
     modalTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        marginBottom: 15,
-        color: '#333',
+        fontSize: Typography.size.xl,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.md,
+    },
+    modalDesc: {
+        fontSize: Typography.size.md,
+        lineHeight: 24,
+        marginBottom: Spacing.xl,
+    },
+    detailSection: {
+        borderTopWidth: 1,
+        paddingVertical: Spacing.lg,
+        gap: Spacing.md,
     },
     detailRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
     },
     detailLabel: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#666',
-        marginBottom: 5,
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1,
     },
     detailValue: {
-        fontSize: 14,
-        color: '#333',
-        textTransform: 'capitalize',
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.medium,
     },
-    modalDescription: {
-        fontSize: 14,
-        color: '#555',
-        marginBottom: 15,
-        lineHeight: 20,
+    notesSection: {
+        marginBottom: Spacing.xl,
     },
     notesInput: {
         borderWidth: 1,
-        borderColor: '#ddd',
-        borderRadius: 8,
-        padding: 10,
-        marginBottom: 15,
-        minHeight: 80,
+        borderRadius: BorderRadius.md,
+        padding: Spacing.md,
+        marginTop: Spacing.sm,
+        fontSize: Typography.size.sm,
         textAlignVertical: 'top',
     },
-    statusButtons: {
+    actionSection: {
+        marginBottom: Spacing.xxl,
+    },
+    statusGrid: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 15,
-        gap: 8,
+        gap: Spacing.sm,
     },
-    statusButton: {
+    actionBtn: {
         flex: 1,
-        padding: 12,
-        borderRadius: 8,
+        paddingVertical: Spacing.md,
+        borderWidth: 1.5,
+        borderRadius: BorderRadius.md,
         alignItems: 'center',
-    },
-    statusButtonText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 12,
-    },
-    closeButton: {
-        backgroundColor: '#666',
-        padding: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-    },
-    closeButtonText: {
-        color: 'white',
-        fontWeight: 'bold',
-    },
+    }
 });
+

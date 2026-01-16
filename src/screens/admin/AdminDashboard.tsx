@@ -1,398 +1,304 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../config/firebaseConfig';
 import { collection, getCountFromServer, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { ATTENDANCE_SLOTS } from '../../utils/attendanceUtils';
 import LoadingScreen from '../../components/LoadingScreen';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
-export default function AdminDashboard({ navigation }: any) {
-    const { user, signOut, hostelId } = useAuth(); // Added hostelId
-    const { colors, theme, toggleTheme } = useTheme();
+export default function AdminDashboard() {
+    const { user, signOut, hostelId } = useAuth();
+    const { colors, theme } = useTheme();
+    const navigation = useNavigation<any>();
     const [residentCount, setResidentCount] = useState<number | string>('-');
     const [complaintCount, setComplaintCount] = useState<number | string>('-');
     const [alerts, setAlerts] = useState<any[]>([]);
     const [missedAttendance, setMissedAttendance] = useState<{ count: number, slotName: string, rawSlot: string } | null>(null);
     const [loading, setLoading] = useState(true);
 
-    // Dynamic Styles
-    const dynamicStyles = {
-        container: { backgroundColor: colors.background },
-        text: { color: colors.text },
-        card: { backgroundColor: colors.card, borderColor: colors.border },
-        cardText: { color: colors.text },
-        subText: { color: colors.subText },
-    };
-
-    // Refresh stats every time the dashboard is focused
     useFocusEffect(
         useCallback(() => {
             const fetchStats = async () => {
-                if (!hostelId) {
-                    console.log("[AdminDashboard] No hostelId, skipping fetch");
-                    return;
-                }
-
-                console.log(`[AdminDashboard] Fetching stats for hostel: ${hostelId}`);
+                if (!hostelId) return;
                 setLoading(true);
                 try {
-                    // 1. Resident Count (Isolated)
                     try {
-                        const resCollection = collection(db, 'residents');
-                        const qRes = query(resCollection, where("hostelId", "==", hostelId));
+                        const qRes = query(collection(db, 'residents'), where("hostelId", "==", hostelId));
                         const resSnap = await getCountFromServer(qRes);
                         setResidentCount(resSnap.data().count);
-                    } catch (err) {
-                        console.error('[AdminDashboard] Resident Count Error:', err);
-                        setResidentCount('Error');
-                    }
+                    } catch (err) { setResidentCount('!'); }
 
-                    // 2. Complaint Count (Isolated)
                     try {
-                        const compCollection = collection(db, 'complaints');
-                        const qComp = query(compCollection, where("hostelId", "==", hostelId));
+                        const qComp = query(collection(db, 'complaints'), where("hostelId", "==", hostelId));
                         const compSnap = await getCountFromServer(qComp);
                         setComplaintCount(compSnap.data().count);
-                    } catch (err) {
-                        console.error('[AdminDashboard] Complaint Count Error:', err);
-                        setComplaintCount('Error');
-                    }
+                    } catch (err) { setComplaintCount('!'); }
 
-                    // 3. Mess Alerts (Isolated with client-side sort fallback)
                     try {
-                        const alertCollection = collection(db, 'mess_alerts');
-                        const alertQ = query(
-                            alertCollection,
-                            where('hostelId', '==', hostelId),
-                            orderBy('createdAt', 'desc'),
-                            limit(3)
-                        );
+                        const alertQ = query(collection(db, 'mess_alerts'), where('hostelId', '==', hostelId), orderBy('createdAt', 'desc'), limit(3));
+                        const alertSnap = await getDocs(alertQ);
+                        const fetchedAlerts: any[] = [];
+                        alertSnap.forEach(doc => fetchedAlerts.push({ id: doc.id, ...doc.data() }));
+                        setAlerts(fetchedAlerts);
+                    } catch (err) { setAlerts([]); }
 
-                        try {
-                            const alertSnap = await getDocs(alertQ);
-                            const fetchedAlerts: any[] = [];
-                            alertSnap.forEach(doc => fetchedAlerts.push({ id: doc.id, ...doc.data() }));
-                            setAlerts(fetchedAlerts);
-                        } catch (indexError) {
-                            console.warn('[AdminDashboard] Alerts index missing, falling back to client-side filter/sort');
-                            // Fallback: Fetch without orderBy to avoid index requirement
-                            const alertQFallback = query(alertCollection, where('hostelId', '==', hostelId));
-                            const alertSnap = await getDocs(alertQFallback);
-                            const fetchedAlerts: any[] = [];
-                            alertSnap.forEach(doc => fetchedAlerts.push({ id: doc.id, ...doc.data() }));
-
-                            // Sort and limit on client
-                            const sorted = fetchedAlerts.sort((a, b) =>
-                                (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0)
-                            ).slice(0, 3);
-                            setAlerts(sorted);
-                        }
-                    } catch (err) {
-                        console.error('[AdminDashboard] Mess Alerts Error:', err);
-                        setAlerts([]);
-                    }
-
-                    // 4. Post-Slot Attendance Report (Isolated)
                     try {
                         const now = new Date();
                         const currentHour = now.getHours() + now.getMinutes() / 60;
                         let targetSlot: 'MORNING' | 'EVENING' | null = null;
                         let slotLabel = '';
-
                         if (currentHour > ATTENDANCE_SLOTS.EVENING.end) {
                             targetSlot = 'EVENING';
-                            slotLabel = 'Evening (8:00 PM - 9:30 PM)';
+                            slotLabel = 'Evening Slot';
                         }
-
                         if (targetSlot && typeof residentCount === 'number') {
                             const startTime = new Date();
                             startTime.setHours(Math.floor(ATTENDANCE_SLOTS[targetSlot].start), (ATTENDANCE_SLOTS[targetSlot].start % 1) * 60, 0, 0);
                             const endTime = new Date();
                             endTime.setHours(Math.floor(ATTENDANCE_SLOTS[targetSlot].end), (ATTENDANCE_SLOTS[targetSlot].end % 1) * 60, 0, 0);
-
-                            const attQ = query(
-                                collection(db, 'attendance'),
-                                where('hostelId', '==', hostelId),
-                                where('timestamp', '>=', Timestamp.fromDate(startTime)),
-                                where('timestamp', '<=', Timestamp.fromDate(endTime))
-                            );
+                            const attQ = query(collection(db, 'attendance'), where('hostelId', '==', hostelId), where('timestamp', '>=', Timestamp.fromDate(startTime)), where('timestamp', '<=', Timestamp.fromDate(endTime)));
                             const attSnap = await getDocs(attQ);
                             const uniqueResidents = new Set(attSnap.docs.map(doc => doc.data().residentId));
-                            const attendedCount = uniqueResidents.size;
-                            const missed = Math.max(0, residentCount - attendedCount);
-
-                            setMissedAttendance({ count: missed, slotName: slotLabel, rawSlot: targetSlot });
-                        } else {
-                            setMissedAttendance(null);
-                        }
-                    } catch (err) {
-                        console.error('[AdminDashboard] Attendance Report Error:', err);
-                        setMissedAttendance(null);
-                    }
-
-                } finally {
-                    setLoading(false);
-                }
+                            setMissedAttendance({ count: Math.max(0, residentCount - uniqueResidents.size), slotName: slotLabel, rawSlot: targetSlot });
+                        } else { setMissedAttendance(null); }
+                    } catch (err) { setMissedAttendance(null); }
+                } finally { setLoading(false); }
             };
-
             fetchStats();
-        }, [hostelId])
+        }, [hostelId, residentCount])
     );
-    if (loading) {
-        return <LoadingScreen message="Loading dashboard statistics..." />;
-    }
+
+    if (loading) return <LoadingScreen message="Updating dashboard..." />;
 
     return (
-        <SafeAreaView style={[styles.safeArea, dynamicStyles.container]} edges={['top', 'left', 'right']}>
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                <View style={styles.headerRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                        <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
-                        <Text style={[styles.title, dynamicStyles.text]} numberOfLines={1} ellipsizeMode="tail">Admin Dashboard</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 10 }}>
-                        <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
-                            <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.iconBtn}>
-                            <Text style={{ fontSize: 24 }}>👤</Text>
-                        </TouchableOpacity>
-                    </View>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader
+                title="Warden Station"
+                onProfilePress={() => navigation.navigate('Profile')}
+            />
+
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.statsGrid}>
+                    <Card style={styles.statCard}>
+                        <Text style={[styles.statValue, { color: colors.primary }]}>{residentCount}</Text>
+                        <Text style={[styles.statLabel, { color: colors.subText }]}>REG. RESIDENTS</Text>
+                    </Card>
+                    <Card style={styles.statCard}>
+                        <Text style={[styles.statValue, { color: '#F43F5E' }]}>{complaintCount}</Text>
+                        <Text style={[styles.statLabel, { color: colors.subText }]}>OPEN TICKETS</Text>
+                    </Card>
                 </View>
 
-                {/* Stats Row */}
-                <View style={styles.statsContainer}>
-                    <View style={[styles.statCard, dynamicStyles.card]}>
-                        <Text style={styles.statNumber}>{residentCount}</Text>
-                        <Text style={[styles.statLabel, dynamicStyles.subText]}>Total Residents</Text>
-                    </View>
-                    <View style={[styles.statCard, dynamicStyles.card]}>
-                        <Text style={styles.statNumber}>{complaintCount}</Text>
-                        <Text style={[styles.statLabel, dynamicStyles.subText]}>Total Complaints</Text>
-                    </View>
-                </View>
-
-                {/* Alerts & Reports Section */}
                 {(alerts.length > 0 || missedAttendance) && (
-                    <View style={styles.reportSection}>
-                        {missedAttendance && (
-                            <View style={styles.attendanceReport}>
-                                <Text style={styles.sectionHeader}>📈 Attendance Gap Report</Text>
-                                <TouchableOpacity
-                                    style={styles.reportCard}
-                                    onPress={() => {
-                                        if (missedAttendance.count > 0) {
-                                            navigation.navigate('AbsentResidents', {
-                                                slotName: missedAttendance.slotName,
-                                                targetSlot: missedAttendance.rawSlot // pass raw slot (EVENING/MORNING)
-                                            });
-                                        }
-                                    }}
-                                >
-                                    <Text style={styles.reportMain}>
-                                        <Text style={styles.reportHighlight}>{missedAttendance.count}</Text> Residents missed
-                                    </Text>
-                                    <Text style={styles.reportSub}>
-                                        {missedAttendance.slotName} • Tap to view list ➔
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
+                    <View style={styles.section}>
+                        <Text style={[styles.sectionTitle, { color: colors.text }]}>Urgent Attention</Text>
+
+                        {missedAttendance && missedAttendance.count > 0 && (
+                            <Card
+                                variant="elevated"
+                                style={[styles.alertCard, { backgroundColor: '#FFFBEB', borderColor: '#F59E0B' }]}
+                                onPress={() => navigation.navigate('AbsentResidents', { slotName: missedAttendance.slotName, targetSlot: missedAttendance.rawSlot })}
+                            >
+                                <View style={styles.alertHeader}>
+                                    <View style={[styles.alertIconBg, { backgroundColor: '#F59E0B' }]}>
+                                        <Text style={styles.alertIcon}>⚠️</Text>
+                                    </View>
+                                    <View>
+                                        <Text style={[styles.alertTitle, { color: '#92400E' }]}>Attendance Gap Detected</Text>
+                                        <Text style={[styles.alertSub, { color: '#B45309' }]}>{missedAttendance.slotName}</Text>
+                                    </View>
+                                </View>
+                                <Text style={[styles.alertMessage, { color: '#92400E' }]}>
+                                    <Text style={{ fontWeight: 'bold' }}>{missedAttendance.count}</Text> residents have not marked their attendance for this slot.
+                                </Text>
+                            </Card>
                         )}
 
-                        {alerts.length > 0 && (
-                            <View style={[styles.alertSection, missedAttendance && { marginTop: 15 }]}>
-                                <Text style={styles.sectionHeader}>🚨 Urgent Alerts</Text>
-                                {alerts.map((alert) => (
-                                    <View key={alert.id} style={styles.alertCard}>
-                                        <Text style={styles.alertTitle}>{alert.title}</Text>
-                                        <Text style={styles.alertMsg}>{alert.message}</Text>
-                                    </View>
-                                ))}
-                            </View>
-                        )}
+                        {alerts.map(alert => (
+                            <Card key={alert.id} style={styles.msgCard} variant="outlined">
+                                <View style={styles.msgHeader}>
+                                    <Text style={[styles.msgTitle, { color: '#F43F5E' }]}>🚨 Mess Alert: {alert.title}</Text>
+                                    <View style={[styles.dot, { backgroundColor: '#F43F5E' }]} />
+                                </View>
+                                <Text style={[styles.msgBody, { color: colors.text }]}>{alert.message}</Text>
+                            </Card>
+                        ))}
                     </View>
                 )}
 
-                <Text style={[styles.sectionTitle, dynamicStyles.text]}>Manage & Monitor</Text>
-
-                <View style={styles.grid}>
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('RegisterResident')}>
-                        <Text style={styles.icon}>👤</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Register Resident</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AllComplaints')}>
-                        <Text style={styles.icon}>⚠️</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>View Complaints</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AttendanceLog')}>
-                        <Text style={styles.icon}>📋</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Attendance Logs</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AdminLeaves')}>
-                        <Text style={styles.icon}>✈️</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>View Leaves</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('AdminBroadcast')}>
-                        <Text style={styles.icon}>📢</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Send Broadcast</Text>
-                    </TouchableOpacity>
+                <View style={[styles.section, { marginTop: Spacing.md }]}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Operations Hub</Text>
+                    <View style={styles.toolsGrid}>
+                        {[
+                            { title: 'New Resident', icon: '👤', screen: 'RegisterResident', color: colors.primary },
+                            { title: 'Triage Panel', icon: '🛠️', screen: 'AllComplaints', color: '#F59E0B' },
+                            { title: 'Security Logs', icon: '🛡️', screen: 'AttendanceLog', color: '#10B981' },
+                            { title: 'Leave Desk', icon: '📅', screen: 'AdminLeaves', color: '#6366F1' },
+                            { title: 'Broadcast', icon: '📣', screen: 'AdminBroadcast', color: '#D946EF' },
+                        ].map((tool, i) => (
+                            <TouchableOpacity
+                                key={i}
+                                style={[styles.toolBtn, { backgroundColor: colors.card }]}
+                                onPress={() => navigation.navigate(tool.screen)}
+                            >
+                                <View style={[styles.toolIconContainer, { backgroundColor: tool.color + '10' }]}>
+                                    <Text style={[styles.toolIconText, { color: tool.color }]}>{tool.icon}</Text>
+                                </View>
+                                <Text style={[styles.toolTitle, { color: colors.text }]}>{tool.title}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
                 </View>
 
                 <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-                    <Text style={styles.logoutText}>Logout</Text>
+                    <Text style={[styles.logoutText, { color: colors.subText }]}>Terminal Secure Out</Text>
                 </TouchableOpacity>
-
             </ScrollView>
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
+    container: {
         flex: 1,
     },
     scrollContent: {
-        padding: 20,
+        padding: Spacing.md,
+        paddingBottom: Spacing.xxl,
     },
-    headerRow: {
+    statsGrid: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 20,
-        marginTop: 10,
-    },
-    title: {
-        fontSize: 28,
-        fontWeight: 'bold',
-    },
-    logo: {
-        width: 40,
-        height: 40,
-        marginRight: 10,
-        borderRadius: 8,
-    },
-    iconBtn: {
-        backgroundColor: 'rgba(150,150,150,0.2)',
-        padding: 8,
-        borderRadius: 20,
-    },
-    statsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 20,
+        gap: Spacing.md,
+        marginBottom: Spacing.xl,
     },
     statCard: {
-        width: '48%',
-        padding: 20,
-        borderRadius: 10,
+        flex: 1,
         alignItems: 'center',
-        borderWidth: 1,
+        paddingVertical: Spacing.xl,
+        borderRadius: BorderRadius.xl,
     },
-    statNumber: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#007AFF',
+    statValue: {
+        fontSize: 32,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: -1,
     },
     statLabel: {
-        fontSize: 12,
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1,
+        marginTop: 4,
     },
-    reportSection: {
-        marginBottom: 20,
-    },
-    attendanceReport: {
-        backgroundColor: '#f1f2f6',
-        padding: 15,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: '#dfe4ea',
-    },
-    reportCard: {
-        marginTop: 5,
-    },
-    reportMain: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#2f3542',
-    },
-    reportHighlight: {
-        color: '#ff4757',
-        fontSize: 22,
-    },
-    reportSub: {
-        fontSize: 12,
-        color: '#747d8c',
-        marginTop: 2,
-    },
-    alertSection: {
-        backgroundColor: '#fff0f0',
-        padding: 15,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: '#ffcccc',
-    },
-    sectionHeader: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#2f3542',
-        marginBottom: 10,
-    },
-    alertCard: {
-        marginBottom: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(0,0,0,0.05)',
-        paddingBottom: 5,
-    },
-    alertTitle: {
-        fontWeight: 'bold',
-        color: '#c0392b',
-    },
-    alertMsg: {
-        fontSize: 13,
-        color: '#2c3e50',
+    section: {
+        marginBottom: Spacing.xl,
     },
     sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 15,
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.md,
+        letterSpacing: 0.5,
     },
-    grid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 15,
+    alertCard: {
+        padding: Spacing.lg,
+        marginBottom: Spacing.md,
+        borderWidth: 1,
     },
-    card: {
-        width: '100%',
-        padding: 20,
-        borderRadius: 10,
-        marginBottom: 10,
+    alertHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        borderWidth: 1,
-        elevation: 2,
+        gap: Spacing.md,
+        marginBottom: Spacing.md,
     },
-    icon: {
+    alertIconBg: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    alertIcon: {
+        fontSize: 18,
+    },
+    alertTitle: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.bold,
+    },
+    alertSub: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+    },
+    alertMessage: {
+        fontSize: Typography.size.sm,
+        lineHeight: 20,
+    },
+    msgCard: {
+        padding: Spacing.md,
+        marginBottom: Spacing.sm,
+    },
+    msgHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4,
+    },
+    msgTitle: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 0.5,
+    },
+    dot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+    },
+    msgBody: {
+        fontSize: Typography.size.sm,
+        lineHeight: 20,
+    },
+    toolsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: Spacing.md,
+    },
+    toolBtn: {
+        width: '47.6%', // Fixed width for 2-column grid
+        padding: Spacing.lg,
+        borderRadius: BorderRadius.xl,
+        alignItems: 'center',
+        ...Shadows.sm,
+    },
+    toolIconContainer: {
+        width: 54,
+        height: 54,
+        borderRadius: BorderRadius.lg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: Spacing.md,
+    },
+    toolIconText: {
         fontSize: 24,
-        marginRight: 20,
     },
-    cardText: {
-        fontSize: 16,
-        fontWeight: '500',
+    toolTitle: {
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
+        textAlign: 'center',
     },
     logoutBtn: {
-        marginTop: 40,
-        alignSelf: 'center',
-        padding: 10,
-        marginBottom: 30,
+        marginTop: Spacing.xxl,
+        alignItems: 'center',
+        padding: Spacing.md,
     },
     logoutText: {
-        color: 'red',
-        fontWeight: 'bold',
-    }
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 2,
+        textTransform: 'uppercase',
+    },
 });
+
+

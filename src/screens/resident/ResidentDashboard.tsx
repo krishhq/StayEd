@@ -8,6 +8,10 @@ import { db } from '../../config/firebaseConfig';
 import { Broadcast } from '../../services/firestoreService';
 import LoadingScreen from '../../components/LoadingScreen';
 
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
+
 export default function ResidentDashboard({ navigation }: any) {
     const { signOut, hostelId } = useAuth();
     const { colors, theme, toggleTheme } = useTheme();
@@ -34,24 +38,24 @@ export default function ResidentDashboard({ navigation }: any) {
             return onSnapshot(q, (snapshot) => {
                 if (snapshot.empty) {
                     setLatestBroadcast(null);
+                    setLoading(false);
                     return;
                 }
 
                 const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Broadcast));
                 if (!useOrderBy) {
-                    // Manual sort if index missing
                     docs.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
                 }
                 setLatestBroadcast(docs[0]);
                 setLoading(false);
             }, (error) => {
-                // If index missing, fallback to non-ordered listener
                 if (useOrderBy && error.code === 'failed-precondition') {
                     console.warn('[ResidentDashboard] Broadcast index missing, falling back to client-side sort');
                     unsubscribeOuter?.();
                     unsubscribeOuter = startListener(false);
                 } else {
                     console.error('[ResidentDashboard] Broadcast listener error:', error);
+                    setLoading(false);
                 }
             });
         };
@@ -60,92 +64,65 @@ export default function ResidentDashboard({ navigation }: any) {
         return () => unsubscribeOuter?.();
     }, [hostelId]);
 
-    const dynamicStyles = {
-        container: { backgroundColor: colors.background },
-        text: { color: colors.text },
-        subText: { color: colors.subText },
-        card: { backgroundColor: colors.card },
-        cardText: { color: colors.text },
-    };
-
-    if (loading) {
-        return <LoadingScreen message="Loading dashboard..." />;
-    }
+    if (loading) return <LoadingScreen message="Personalizing your dashboard..." />;
 
     return (
-        <SafeAreaView style={[styles.safeArea, dynamicStyles.container]} edges={['top', 'left', 'right']}>
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                {/* Header Section */}
-                <View style={styles.header}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                            <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
-                            <View style={{ flex: 1 }}>
-                                <Text style={[styles.welcome, dynamicStyles.text]} numberOfLines={1} ellipsizeMode="tail">Welcome Resident!</Text>
-                                <Text style={[styles.subtext, dynamicStyles.subText]} numberOfLines={1} ellipsizeMode="tail">What would you like to do today?</Text>
-                            </View>
-                        </View>
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
-                            <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
-                                <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.profileBtn}>
-                                <Text style={{ fontSize: 24 }}>👤</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader
+                title="Resident Home"
+                onProfilePress={() => navigation.navigate('Profile')}
+            />
+
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                {/* Welcome Message */}
+                <View style={styles.welcomeSection}>
+                    <Text style={[styles.welcomeText, { color: colors.text }]}>Welcome Back!</Text>
+                    <Text style={[styles.subText, { color: colors.subText }]}>How can we help you today?</Text>
                 </View>
 
                 {/* Broadcast Banner */}
                 {latestBroadcast && (
-                    <TouchableOpacity
-                        activeOpacity={0.9}
-                        onPress={() => navigation.navigate('BroadcastHistory')}
+                    <Card
                         style={[
                             styles.broadcastBanner,
-                            latestBroadcast.priority === 'emergency' ? styles.emergencyBanner : styles.normalBanner
+                            { backgroundColor: latestBroadcast.priority === 'emergency' ? colors.error : colors.primary }
                         ]}
+                        onPress={() => navigation.navigate('BroadcastHistory')}
                     >
                         <View style={styles.broadcastHeader}>
                             <Text style={styles.broadcastType}>
                                 {latestBroadcast.priority === 'emergency' ? '🚨 EMERGENCY' : '📢 LATEST NEWS'}
                             </Text>
-                            <Text style={styles.broadcastTime}>View History</Text>
+                            <Text style={styles.viewHistory}>View All ➔</Text>
                         </View>
                         <Text style={styles.broadcastTitle}>{latestBroadcast.title}</Text>
                         <Text style={styles.broadcastMsg} numberOfLines={2}>{latestBroadcast.message}</Text>
-                    </TouchableOpacity>
+                    </Card>
                 )}
 
                 <View style={styles.grid}>
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Attendance')}>
-                        <Text style={styles.cardIcon}>📷</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Log Entry/Exit</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Complaints')}>
-                        <Text style={styles.cardIcon}>🔧</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Raise Complaint</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Forum')}>
-                        <Text style={styles.cardIcon}>💬</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Community Forum</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Leave')}>
-                        <Text style={styles.cardIcon}>📅</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Apply Leave</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.card, dynamicStyles.card]} onPress={() => navigation.navigate('Mess')}>
-                        <Text style={styles.cardIcon}>🍛</Text>
-                        <Text style={[styles.cardText, dynamicStyles.cardText]}>Mess Menu</Text>
-                    </TouchableOpacity>
+                    {[
+                        { title: 'Logs & Entry', icon: '📷', screen: 'Attendance', color: '#10B981' },
+                        { title: 'Raise Issue', icon: '🔧', screen: 'Complaints', color: colors.warning },
+                        { title: 'Forum', icon: '💬', screen: 'Forum', color: '#6366F1' },
+                        { title: 'Apply Leave', icon: '📅', screen: 'Leave', color: '#F43F5E' },
+                        { title: 'Mess Menu', icon: '🍛', screen: 'Mess', color: colors.primary },
+                    ].map((item, i) => (
+                        <TouchableOpacity
+                            key={i}
+                            style={[styles.menuCard, { backgroundColor: colors.card }, theme === 'light' ? Shadows.md : { borderWidth: 1, borderColor: colors.border }]}
+                            onPress={() => navigation.navigate(item.screen)}
+                        >
+                            <View style={[styles.iconContainer, { backgroundColor: item.color + '15' }]}>
+                                <Text style={styles.cardIcon}>{item.icon}</Text>
+                            </View>
+                            <Text style={[styles.cardText, { color: colors.text }]}>{item.title}</Text>
+                        </TouchableOpacity>
+                    ))}
                 </View>
 
                 <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-                    <Text style={styles.logoutText}>Logout</Text>
+                    <Text style={[styles.logoutText, { color: colors.error }]}>Sign Out</Text>
                 </TouchableOpacity>
             </ScrollView>
         </SafeAreaView>
@@ -153,126 +130,95 @@ export default function ResidentDashboard({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingBottom: 20,
-    },
     container: {
         flex: 1,
     },
-    header: {
-        padding: 20,
-        marginBottom: 10,
+    scrollContent: {
+        padding: Spacing.md,
+        paddingBottom: Spacing.xxl,
     },
-    welcome: {
-        fontSize: 28,
-        fontWeight: 'bold',
+    welcomeSection: {
+        marginBottom: Spacing.lg,
+        paddingHorizontal: Spacing.xs,
     },
-    logo: {
-        width: 50,
-        height: 50,
-        marginRight: 15,
-        borderRadius: 10,
+    welcomeText: {
+        fontSize: Typography.size.xxl,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: -0.5,
     },
-    subtext: {
-        fontSize: 16,
-        marginTop: 5,
-    },
-    profileBtn: {
-        backgroundColor: 'white',
-        padding: 10,
-        borderRadius: 25,
-        elevation: 2,
-    },
-    iconBtn: {
-        backgroundColor: 'rgba(150,150,150,0.2)',
-        padding: 10,
-        borderRadius: 25,
-    },
-    grid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-    },
-    card: {
-        width: '48%',
-        padding: 20,
-        borderRadius: 15,
-        marginBottom: 15,
-        elevation: 4,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: 130,
-    },
-    cardIcon: {
-        fontSize: 32,
-        marginBottom: 10,
-    },
-    cardText: {
-        fontWeight: '600',
-        textAlign: 'center',
-    },
-    logoutBtn: {
-        marginTop: 'auto',
-        backgroundColor: '#ff4444',
-        padding: 15,
-        borderRadius: 10,
-        alignItems: 'center',
-        marginBottom: 20,
-    },
-    logoutText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 16,
+    subText: {
+        fontSize: Typography.size.sm,
+        marginTop: 4,
     },
     broadcastBanner: {
-        padding: 15,
-        borderRadius: 15,
-        marginBottom: 25,
-        elevation: 5,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 5,
-    },
-    normalBanner: {
-        backgroundColor: '#007AFF',
-    },
-    emergencyBanner: {
-        backgroundColor: '#d63031',
-        borderWidth: 2,
-        borderColor: 'rgba(255,255,255,0.3)',
+        marginBottom: Spacing.xl,
+        padding: Spacing.lg,
     },
     broadcastHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: 5,
+        alignItems: 'center',
+        marginBottom: Spacing.xs,
     },
     broadcastType: {
-        color: 'rgba(255,255,255,0.8)',
-        fontSize: 10,
-        fontWeight: 'bold',
-        letterSpacing: 1,
+        color: 'white',
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
+        opacity: 0.9,
     },
-    broadcastTime: {
-        color: 'rgba(255,255,255,0.6)',
-        fontSize: 10,
+    viewHistory: {
+        color: 'white',
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.medium,
+        opacity: 0.8,
     },
     broadcastTitle: {
         color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 5,
+        fontSize: Typography.size.lg,
+        fontWeight: Typography.weight.bold,
+        marginBottom: 4,
     },
     broadcastMsg: {
         color: 'white',
-        fontSize: 14,
+        fontSize: Typography.size.sm,
         opacity: 0.9,
-    }
+    },
+    grid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: Spacing.md,
+    },
+    menuCard: {
+        width: '47.5%',
+        padding: Spacing.lg,
+        borderRadius: BorderRadius.xl,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    iconContainer: {
+        width: 60,
+        height: 60,
+        borderRadius: BorderRadius.lg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: Spacing.sm,
+    },
+    cardIcon: {
+        fontSize: 32,
+    },
+    cardText: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.semibold,
+        textAlign: 'center',
+    },
+    logoutBtn: {
+        marginTop: Spacing.xxl,
+        alignItems: 'center',
+        padding: Spacing.md,
+    },
+    logoutText: {
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
+    },
 });
+

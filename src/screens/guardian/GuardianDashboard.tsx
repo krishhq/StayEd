@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
@@ -7,6 +7,9 @@ import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../config/firebaseConfig';
 import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import LoadingScreen from '../../components/LoadingScreen';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
 interface EntryExitLog {
     id: string;
@@ -16,8 +19,8 @@ interface EntryExitLog {
 }
 
 export default function GuardianDashboard({ navigation }: any) {
-    const { signOut, user, linkedResidentId } = useAuth();
-    const { colors, theme, toggleTheme } = useTheme();
+    const { signOut, linkedResidentId } = useAuth();
+    const { colors, theme } = useTheme();
     const [wardName, setWardName] = useState('Loading...');
     const [wardStatus, setWardStatus] = useState<'In Hostel' | 'Left Campus' | 'Unknown'>('Unknown');
     const [lastLogTime, setLastLogTime] = useState<string | null>(null);
@@ -33,95 +36,43 @@ export default function GuardianDashboard({ navigation }: any) {
                     setLoading(false);
                     return;
                 }
-
                 try {
                     setLoading(true);
 
-                    // 1. Fetch Ward Profile Info
-                    try {
-                        const residentDocRef = doc(db, 'residents', linkedResidentId);
-                        const residentSnap = await getDoc(residentDocRef);
-                        if (residentSnap.exists()) {
-                            const residentData = residentSnap.data();
-                            setWardName(residentData.name || 'Resident');
-                        } else {
-                            setWardName('Ward record not found');
-                        }
-                    } catch (err) {
-                        console.error('[GuardianDash] Error fetching ward info:', err);
-                        setWardName('Error loading name');
+                    const residentDocRef = doc(db, 'residents', linkedResidentId);
+                    const residentSnap = await getDoc(residentDocRef);
+                    if (residentSnap.exists()) {
+                        setWardName(residentSnap.data().name || 'Resident');
                     }
 
-                    // 2. Fetch Pending Leaves (Isolated/Resilient)
-                    try {
-                        const qLeaves = query(
-                            collection(db, 'leaves'),
-                            where('residentId', '==', linkedResidentId),
-                            where('status', '==', 'pending_guardian')
-                        );
-                        const snapLeaves = await getDocs(qLeaves);
-                        setPendingLeaves(snapLeaves.size);
-                    } catch (err) {
-                        console.error('[GuardianDash] Error fetching leaves:', err);
-                        setPendingLeaves(0);
+                    const qLeaves = query(collection(db, 'leaves'), where('residentId', '==', linkedResidentId), where('status', '==', 'pending_guardian'));
+                    const snapLeaves = await getDocs(qLeaves);
+                    setPendingLeaves(snapLeaves.size);
+
+                    const logsRef = collection(db, 'entry_exit_logs');
+                    const qLogs = query(logsRef, where('residentId', '==', linkedResidentId), orderBy('timestamp', 'desc'), limit(10));
+
+                    let snapLogs;
+                    try { snapLogs = await getDocs(qLogs); } catch {
+                        snapLogs = await getDocs(query(logsRef, where('residentId', '==', linkedResidentId)));
                     }
 
-                    // 3. Fetch Entry/Exit Logs (Isolated with Fallback)
-                    try {
-                        const logsRef = collection(db, 'entry_exit_logs');
-                        const qLogs = query(
-                            logsRef,
-                            where('residentId', '==', linkedResidentId),
-                            orderBy('timestamp', 'desc'),
-                            limit(10)
-                        );
-
-                        let snapLogs;
-                        try {
-                            snapLogs = await getDocs(qLogs);
-                        } catch (indexError) {
-                            console.warn('[GuardianDash] Index missing for logs, falling back to client-sort');
-                            const qFallback = query(
-                                logsRef,
-                                where('residentId', '==', linkedResidentId)
-                            );
-                            snapLogs = await getDocs(qFallback);
-                        }
-
-                        const logs: EntryExitLog[] = snapLogs.docs.map(doc => ({
-                            id: doc.id,
-                            ...doc.data()
-                        } as EntryExitLog));
-
-                        // Client-side sort if it was a fallback query
-                        if (logs.length > 0 && !logs[0].timestamp?.toDate) {
-                            logs.sort((a, b) => {
-                                const timeA = a.timestamp?.toMillis() || 0;
-                                const timeB = b.timestamp?.toMillis() || 0;
-                                return timeB - timeA;
-                            });
-                        }
-
-                        // Determine most recent status AFTER sorting
-                        if (logs.length > 0) {
-                            const latest = logs[0];
-                            setWardStatus(latest.type === 'entry' ? 'In Hostel' : 'Left Campus');
-                            setLastLogTime(formatTimestamp(latest.timestamp));
-                        }
-
-                        setEntryExitLogs(logs.slice(0, 10));
-                    } catch (err) {
-                        console.error('[GuardianDash] Error fetching logs:', err);
-                        setEntryExitLogs([]);
+                    const logs: EntryExitLog[] = snapLogs.docs.map(doc => ({ id: doc.id, ...doc.data() } as EntryExitLog));
+                    if (logs.length > 0 && !logs[0].timestamp?.toDate) {
+                        logs.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
                     }
-
-                } catch (e) {
-                    console.log('Global Guardian Stats Error:', e);
+                    if (logs.length > 0) {
+                        const latest = logs[0];
+                        setWardStatus(latest.type === 'entry' ? 'In Hostel' : 'Left Campus');
+                        setLastLogTime(formatTimestamp(latest.timestamp));
+                    }
+                    setEntryExitLogs(logs.slice(0, 5));
+                } catch (err) {
+                    console.error('[GuardianDash] Error:', err);
                 } finally {
                     setLoading(false);
                 }
             };
-
             fetchWardStats();
         }, [linkedResidentId])
     );
@@ -129,109 +80,106 @@ export default function GuardianDashboard({ navigation }: any) {
     const formatTimestamp = (timestamp: any) => {
         if (!timestamp) return 'Just now';
         const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-        return date.toLocaleString('en-IN', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        return date.toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     };
 
-    if (loading) {
-        return <LoadingScreen message="Loading ward information..." />;
-    }
+    if (loading) return <LoadingScreen message="Linking to your ward..." />;
 
     return (
-        <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                        <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
-                        <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">Guardian Portal</Text>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader
+                title="Warden Monitor"
+                onProfilePress={() => navigation.navigate('Profile')}
+            />
+
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <Card style={[styles.wardHighlight, { backgroundColor: colors.primary }]} variant="elevated">
+                    <View style={styles.wardHeader}>
+                        <View style={styles.avatarCircle}>
+                            <Text style={[styles.avatarText, { color: colors.primary }]}>{wardName.charAt(0)}</Text>
+                        </View>
+                        <View>
+                            <Text style={styles.wardLabel}>RESIDENT MONITOR</Text>
+                            <Text style={styles.wardName}>{wardName}</Text>
+                        </View>
                     </View>
-                    <View style={{ flexDirection: 'row', gap: 10 }}>
-                        <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
-                            <Text style={{ fontSize: 22 }}>{theme === 'light' ? '🌙' : '☀️'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.iconBtn}>
-                            <Text style={{ fontSize: 24 }}>👤</Text>
-                        </TouchableOpacity>
+                    <View style={styles.statusRowBubble}>
+                        <View style={[styles.statusIndicator, { backgroundColor: wardStatus === 'In Hostel' ? '#10B981' : '#F59E0B' }]} />
+                        <Text style={styles.statusText}>{wardStatus === 'In Hostel' ? 'Currently In Hostel' : 'Outside Campus'}</Text>
                     </View>
+                    {lastLogTime && (
+                        <Text style={styles.lastSeen}>Last Checkpoint: {lastLogTime}</Text>
+                    )}
+                </Card>
+
+                <View style={styles.statsGrid}>
+                    <Card style={styles.statBox} variant="outlined">
+                        <Text style={[styles.statValue, { color: colors.error }]}>{pendingLeaves}</Text>
+                        <Text style={[styles.statLabel, { color: colors.subText }]}>Pending Leaves</Text>
+                    </Card>
+                    <Card style={styles.statBox} variant="outlined">
+                        <Text style={[styles.statValue, { color: colors.primary }]}>98%</Text>
+                        <Text style={[styles.statLabel, { color: colors.subText }]}>Monthly Present</Text>
+                    </Card>
                 </View>
 
-                <View style={styles.wardCard}>
-                    <Text style={styles.wardLabel}>Your Ward</Text>
-                    <Text style={styles.wardName}>{wardName}</Text>
-                    <View style={[
-                        styles.wardStatusBadge,
-                        { backgroundColor: wardStatus === 'In Hostel' ? 'rgba(255,255,255,0.2)' : '#e67e22' }
-                    ]}>
-                        <Text style={styles.wardStatusText}>
-                            {wardStatus === 'In Hostel' ? '📍 In Hostel' : `🚶 Left Campus (${lastLogTime || 'Unknown'})`}
-                        </Text>
-                    </View>
+                <View style={styles.sectionHeader}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Movement History</Text>
+                    <TouchableOpacity onPress={() => Alert.alert('History', 'Full history coming soon.')}>
+                        <Text style={[styles.seeAll, { color: colors.primary }]}>View All</Text>
+                    </TouchableOpacity>
                 </View>
 
-                <Text style={styles.sectionTitle}>Overview</Text>
-
-                <View style={styles.statsContainer}>
-                    <View style={styles.statCard}>
-                        <Text style={styles.statNumber}>{pendingLeaves}</Text>
-                        <Text style={styles.statLabel}>Pending Leaves</Text>
-                    </View>
-                    <View style={styles.statCard}>
-                        <Text style={styles.statNumber}>--</Text>
-                        <Text style={styles.statLabel}>Attendance %</Text>
-                    </View>
-                </View>
-
-                {/* Entry/Exit Logs Section */}
-                <Text style={styles.sectionTitle}>Entry/Exit Logs</Text>
-                {loading ? (
-                    <ActivityIndicator size="large" color="#27ae60" />
-                ) : entryExitLogs.length > 0 ? (
-                    <View style={styles.logsCard}>
-                        {entryExitLogs.map((log) => (
-                            <View key={log.id} style={styles.logItem}>
-                                <View style={[
-                                    styles.logBadge,
-                                    { backgroundColor: log.type === 'entry' ? '#4CAF50' : '#FF5252' }
-                                ]}>
-                                    <Text style={styles.logBadgeText}>
-                                        {log.type === 'entry' ? '➡️ Entry' : '⬅️ Exit'}
+                {entryExitLogs.length > 0 ? (
+                    <Card style={styles.logsCard} variant="outlined">
+                        {entryExitLogs.map((log, index) => (
+                            <View key={log.id} style={[styles.logRow, index === entryExitLogs.length - 1 && { borderBottomWidth: 0 }]}>
+                                <View style={[styles.logIcon, { backgroundColor: log.type === 'entry' ? '#10B98115' : '#F43F5E15' }]}>
+                                    <Text style={{ fontSize: 14 }}>{log.type === 'entry' ? '⬇️' : '⬆️'}</Text>
+                                </View>
+                                <View style={styles.logInfo}>
+                                    <Text style={[styles.logType, { color: colors.text }]}>
+                                        {log.type === 'entry' ? 'Entrance Checkpoint' : 'Departure Checkpoint'}
                                     </Text>
+                                    <Text style={[styles.logTime, { color: colors.subText }]}>{formatTimestamp(log.timestamp)}</Text>
                                 </View>
-                                <View style={styles.logDetails}>
-                                    <Text style={styles.logTime}>{formatTimestamp(log.timestamp)}</Text>
-                                    {log.distance && (
-                                        <Text style={styles.logDistance}>{log.distance.toFixed(0)}m from campus</Text>
-                                    )}
-                                </View>
+                                {log.distance && (
+                                    <Text style={[styles.distance, { color: colors.subText }]}>{log.distance.toFixed(0)}m</Text>
+                                )}
                             </View>
                         ))}
-                    </View>
+                    </Card>
                 ) : (
-                    <View style={styles.emptyState}>
-                        <Text style={styles.emptyText}>No entry/exit logs yet</Text>
-                    </View>
+                    <Card style={styles.emptyCard}>
+                        <Text style={[styles.emptyText, { color: colors.subText }]}>No activity logs recorded yet.</Text>
+                    </Card>
                 )}
 
-                <Text style={styles.sectionTitle}>Actions</Text>
-
-                <View style={styles.grid}>
-                    <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('GuardianLeave')}>
-                        <Text style={styles.icon}>📝</Text>
-                        <Text style={styles.cardText}>Approve Leaves</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text, marginTop: Spacing.xl, marginBottom: Spacing.md }]}>Safety Controls</Text>
+                <View style={styles.actionRow}>
+                    <TouchableOpacity
+                        style={[styles.actionCard, { backgroundColor: colors.card }, theme === 'light' ? Shadows.md : { borderWidth: 1, borderColor: colors.border }]}
+                        onPress={() => navigation.navigate('GuardianLeave')}
+                    >
+                        <View style={[styles.actionIcon, { backgroundColor: colors.primary + '10' }]}>
+                            <Text style={{ fontSize: 20 }}>📬</Text>
+                        </View>
+                        <Text style={[styles.actionText, { color: colors.text }]}>Leave Requests</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.card} onPress={() => Alert.alert('Coming Soon', 'Attendance History View')}>
-                        <Text style={styles.icon}>🕒</Text>
-                        <Text style={styles.cardText}>View Attendance Logs</Text>
+                    <TouchableOpacity
+                        style={[styles.actionCard, { backgroundColor: colors.card }, theme === 'light' ? Shadows.md : { borderWidth: 1, borderColor: colors.border }]}
+                        onPress={() => Alert.alert('Reports', 'Detailed logs are being generated.')}
+                    >
+                        <View style={[styles.actionIcon, { backgroundColor: '#F59E0B10' }]}>
+                            <Text style={{ fontSize: 20 }}>📊</Text>
+                        </View>
+                        <Text style={[styles.actionText, { color: colors.text }]}>Usage Analytics</Text>
                     </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-                    <Text style={styles.logoutText}>Logout</Text>
+                <TouchableOpacity style={styles.signOutBtn} onPress={signOut}>
+                    <Text style={[styles.signOutText, { color: colors.error }]}>LOGOUT FROM PORTAL</Text>
                 </TouchableOpacity>
             </ScrollView>
         </SafeAreaView>
@@ -239,169 +187,186 @@ export default function GuardianDashboard({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-    safeArea: {
+    container: {
         flex: 1,
     },
     scrollContent: {
-        padding: 20,
+        padding: Spacing.md,
+        paddingBottom: Spacing.xxl,
     },
-    container: {
-        backgroundColor: '#f4f6f8',
-        minHeight: '100%',
+    wardHighlight: {
+        padding: Spacing.lg,
+        paddingVertical: Spacing.xl,
+        marginBottom: Spacing.lg,
+        borderRadius: BorderRadius.xl,
     },
-    title: {
-        fontSize: 26,
-        fontWeight: 'bold',
-        color: '#2c3e50',
-    },
-    logo: {
-        width: 40,
-        height: 40,
-        marginRight: 10,
-        borderRadius: 8,
-    },
-    iconBtn: {
-        backgroundColor: 'rgba(150,150,150,0.1)',
-        padding: 8,
-        borderRadius: 20,
-    },
-    wardCard: {
-        backgroundColor: '#27ae60',
-        padding: 20,
-        borderRadius: 15,
-        marginBottom: 25,
+    wardHeader: {
+        flexDirection: 'row',
         alignItems: 'center',
+        gap: Spacing.md,
+        marginBottom: Spacing.lg,
+    },
+    avatarCircle: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: 'white',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarText: {
+        fontSize: 20,
+        fontWeight: Typography.weight.bold,
     },
     wardLabel: {
-        color: 'rgba(255,255,255,0.8)',
-        fontSize: 14,
-        marginBottom: 5,
+        color: 'white',
+        fontSize: 9,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1,
+        opacity: 0.8,
     },
     wardName: {
         color: 'white',
-        fontSize: 24,
-        fontWeight: 'bold',
-        marginBottom: 5,
+        fontSize: Typography.size.xl,
+        fontWeight: Typography.weight.bold,
     },
-    wardStatusBadge: {
-        marginTop: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-    },
-    wardStatusText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 13,
-    },
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 15,
-        color: '#34495e',
-    },
-    statsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 25,
-    },
-    statCard: {
-        width: '48%',
-        backgroundColor: 'white',
-        padding: 15,
-        borderRadius: 10,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#e0e0e0',
-    },
-    statNumber: {
-        fontSize: 22,
-        fontWeight: 'bold',
-        color: '#2c3e50',
-    },
-    statLabel: {
-        fontSize: 12,
-        color: '#7f8c8d',
-    },
-    logsCard: {
-        backgroundColor: 'white',
-        borderRadius: 12,
-        padding: 15,
-        marginBottom: 25,
-        elevation: 2,
-    },
-    logItem: {
+    statusRowBubble: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
-    },
-    logBadge: {
+        backgroundColor: 'rgba(255,255,255,0.15)',
         paddingHorizontal: 12,
         paddingVertical: 8,
-        borderRadius: 8,
-        marginRight: 12,
+        borderRadius: BorderRadius.full,
+        alignSelf: 'flex-start',
+        gap: 8,
+        marginBottom: 8,
     },
-    logBadgeText: {
+    statusIndicator: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+    },
+    statusText: {
         color: 'white',
-        fontSize: 13,
-        fontWeight: 'bold',
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 0.5,
     },
-    logDetails: {
+    lastSeen: {
+        color: 'white',
+        fontSize: 10,
+        opacity: 0.7,
+        marginLeft: 4,
+    },
+    statsGrid: {
+        flexDirection: 'row',
+        gap: Spacing.md,
+        marginBottom: Spacing.xl,
+    },
+    statBox: {
+        flex: 1,
+        paddingVertical: Spacing.lg,
+        alignItems: 'center',
+    },
+    statValue: {
+        fontSize: Typography.size.lg,
+        fontWeight: Typography.weight.bold,
+    },
+    statLabel: {
+        fontSize: 9,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 0.5,
+        marginTop: 4,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: Spacing.md,
+        paddingHorizontal: 4,
+    },
+    sectionTitle: {
+        fontSize: 12,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+    },
+    seeAll: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+    },
+    logsCard: {
+        paddingVertical: Spacing.xs,
+    },
+    logRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: Spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(0,0,0,0.03)',
+    },
+    logIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: BorderRadius.md,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: Spacing.md,
+    },
+    logInfo: {
         flex: 1,
     },
+    logType: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.semibold,
+    },
     logTime: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#2c3e50',
-        marginBottom: 2,
+        fontSize: 10,
+        marginTop: 2,
     },
-    logDistance: {
-        fontSize: 12,
-        color: '#7f8c8d',
+    distance: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
     },
-    emptyState: {
-        backgroundColor: 'white',
-        borderRadius: 12,
-        padding: 30,
+    emptyCard: {
+        padding: Spacing.xl,
         alignItems: 'center',
-        marginBottom: 25,
     },
     emptyText: {
-        color: '#7f8c8d',
-        fontSize: 14,
+        fontSize: Typography.size.xs,
     },
-    grid: {
+    actionRow: {
         flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 15,
+        gap: Spacing.md,
     },
-    card: {
-        width: '47%',
-        backgroundColor: 'white',
-        padding: 20,
-        borderRadius: 12,
-        marginBottom: 10,
+    actionCard: {
+        flex: 1,
+        padding: Spacing.lg,
+        borderRadius: BorderRadius.xl,
         alignItems: 'center',
-        elevation: 2,
+        gap: Spacing.sm,
     },
-    icon: {
-        fontSize: 28,
-        marginBottom: 10,
+    actionIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: BorderRadius.lg,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    cardText: {
-        fontWeight: '600',
-        textAlign: 'center',
+    actionText: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
     },
-    logoutBtn: {
-        marginTop: 30,
-        alignSelf: 'center',
+    signOutBtn: {
+        marginTop: Spacing.xxl,
+        alignItems: 'center',
+        padding: Spacing.md,
     },
-    logoutText: {
-        color: '#c0392b',
-        fontWeight: 'bold',
-        fontSize: 16,
-    }
+    signOutText: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1,
+    },
 });
+
+

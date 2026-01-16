@@ -1,32 +1,28 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { db } from '../../config/firebaseConfig';
 import { collection, query, where, orderBy, limit, onSnapshot, QuerySnapshot, FirestoreError, getDoc, doc } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
 export default function AttendanceLogScreen() {
     const { hostelId } = useAuth();
     const { colors } = useTheme();
+    const navigation = useNavigation();
     const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'attendance' | 'entry_exit'>('attendance');
     const [residentCache, setResidentCache] = useState<{ [key: string]: { name: string, room: string } }>({});
 
-
-    const dynamicStyles = {
-        container: { backgroundColor: colors.background },
-        text: { color: colors.text },
-        card: { backgroundColor: colors.card, borderColor: colors.border },
-        subText: { color: colors.subText }
-    };
-
     useEffect(() => {
         if (!hostelId) return;
 
-        console.log(`[AttendanceLog] Initializing subscription for tab: ${activeTab}, hostel: ${hostelId}`);
         setLoading(true);
-
         const collectionName = activeTab === 'attendance' ? 'attendance' : 'entry_exit_logs';
         const q = query(
             collection(db, collectionName),
@@ -36,8 +32,6 @@ export default function AttendanceLogScreen() {
         );
 
         const unsubscribe = onSnapshot(q, async (snapshot: QuerySnapshot) => {
-            console.log(`[AttendanceLog] Snapshot update received for ${activeTab}. Docs: ${snapshot.size}`);
-
             const fetched: any[] = [];
             const uniqueResidentIds = new Set<string>();
 
@@ -45,16 +39,15 @@ export default function AttendanceLogScreen() {
                 const data = doc.data();
                 if (data.residentId) uniqueResidentIds.add(data.residentId);
 
-                let timeString = 'Unknown Time';
+                let timeString = 'Unknown';
                 if (data.timestamp) {
                     const date = data.timestamp.toDate ? data.timestamp.toDate() : new Date(data.timestamp);
-                    timeString = date.toLocaleString();
+                    timeString = date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
                 }
 
                 fetched.push({ id: doc.id, ...data, timeString });
             });
 
-            // Fetch details for new residents
             const newCache = { ...residentCache };
             let cacheUpdated = false;
 
@@ -73,78 +66,90 @@ export default function AttendanceLogScreen() {
                 }
             }));
 
-            if (cacheUpdated) {
-                setResidentCache(newCache);
-            }
-
+            if (cacheUpdated) setResidentCache(newCache);
             setLogs(fetched);
             setLoading(false);
         }, (error: FirestoreError) => {
-            console.error(`[AttendanceLog] Subscription Error (${activeTab}):`, error);
+            console.error(`[AttendanceLog] Error:`, error);
             setLoading(false);
         });
 
-        // Cleanup subscription on unmount or dependency change
         return () => unsubscribe();
     }, [hostelId, activeTab]);
 
-    // Simplified manual refresh just in case (though onSnapshot handles updates)
     const handleRefresh = () => {
-        // Since onSnapshot is active, this might just check loading state or could be removed.
-        // For UI feedback, we can just toggle loading briefly.
         setLoading(true);
         setTimeout(() => setLoading(false), 500);
+    };
+
+    const renderTabButton = (type: 'attendance' | 'entry_exit', label: string) => {
+        const isActive = activeTab === type;
+        return (
+            <TouchableOpacity
+                style={[styles.tabButton, isActive && { backgroundColor: colors.primary }]}
+                onPress={() => setActiveTab(type)}
+            >
+                <Text style={[styles.tabText, { color: isActive ? 'white' : colors.subText }]}>
+                    {label}
+                </Text>
+            </TouchableOpacity>
+        );
     };
 
     const renderItem = ({ item }: any) => {
         const details = residentCache[item.residentId];
         return (
-            <View style={[styles.row, dynamicStyles.card]}>
-                <View>
-                    <Text style={[styles.residentId, dynamicStyles.text]}>
-                        {details ? `${details.name} (Room: ${details.room})` : `ID: ${item.residentId || 'Unknown'}`}
+            <Card style={styles.card} variant="elevated">
+                <View style={styles.logInfo}>
+                    <Text style={[styles.name, { color: colors.text }]}>
+                        {details ? details.name : 'Unknown Resident'}
                     </Text>
-                    <Text style={[styles.timestamp, dynamicStyles.subText]}>{item.timeString}</Text>
+                    <View style={styles.metaRow}>
+                        {details && (
+                            <Text style={[styles.roomBadge, { backgroundColor: colors.background, color: colors.subText }]}>
+                                Room {details.room}
+                            </Text>
+                        )}
+                        <Text style={[styles.timeText, { color: colors.subText }]}>{item.timeString}</Text>
+                    </View>
                     {activeTab === 'attendance' && item.distance !== undefined && (
-                        <Text style={[styles.distance, dynamicStyles.subText]}>📍 {item.distance.toFixed(1)}m from center</Text>
+                        <Text style={[styles.distanceText, { color: colors.subText }]}>
+                            📍 {item.distance.toFixed(1)}m from center
+                        </Text>
                     )}
                 </View>
-                <View style={styles.rightContent}>
+
+                <View style={styles.statusSection}>
                     {activeTab === 'attendance' ? (
-                        <View style={[styles.badge, { backgroundColor: '#4CAF50' }]}>
-                            <Text style={styles.badgeText}>Present</Text>
+                        <View style={[styles.badge, { backgroundColor: '#10B98120' }]}>
+                            <Text style={[styles.badgeText, { color: '#10B981' }]}>PRESENT</Text>
                         </View>
                     ) : (
-                        <View style={[styles.badge, { backgroundColor: item.type === 'entry' ? '#2196F3' : '#F44336' }]}>
-                            <Text style={styles.badgeText}>{item.type === 'entry' ? 'Entry' : 'Exit'}</Text>
+                        <View style={[styles.badge, { backgroundColor: (item.type === 'entry' ? '#3B82F6' : '#F43F5E') + '20' }]}>
+                            <Text style={[styles.badgeText, { color: item.type === 'entry' ? '#3B82F6' : '#F43F5E' }]}>
+                                {item.type?.toUpperCase()}
+                            </Text>
                         </View>
                     )}
                 </View>
-            </View>
+            </Card>
         );
     };
 
     return (
-        <View style={[styles.container, dynamicStyles.container]}>
-            {/* Tab Bar */}
-            <View style={styles.tabBar}>
-                <TouchableOpacity
-                    style={[styles.tab, activeTab === 'attendance' && styles.activeTab]}
-                    onPress={() => setActiveTab('attendance')}
-                >
-                    <Text style={[styles.tabText, activeTab === 'attendance' && styles.activeTabText]}>Daily Attendance</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.tab, activeTab === 'entry_exit' && styles.activeTab]}
-                    onPress={() => setActiveTab('entry_exit')}
-                >
-                    <Text style={[styles.tabText, activeTab === 'entry_exit' && styles.activeTabText]}>Entry/Exit Logs</Text>
-                </TouchableOpacity>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title="Security Logs" onBackPress={() => navigation.goBack()} />
+
+            <View style={styles.tabsWrapper}>
+                <View style={styles.tabContainer}>
+                    {renderTabButton('attendance', 'Daily Attendance')}
+                    {renderTabButton('entry_exit', 'Entry/Exit')}
+                </View>
             </View>
 
             {loading ? (
                 <View style={styles.center}>
-                    <ActivityIndicator size="large" color="#007AFF" />
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
             ) : (
                 <FlatList
@@ -152,16 +157,18 @@ export default function AttendanceLogScreen() {
                     keyExtractor={(item) => item.id}
                     renderItem={renderItem}
                     contentContainerStyle={styles.list}
+                    showsVerticalScrollIndicator={false}
                     onRefresh={handleRefresh}
                     refreshing={loading}
                     ListEmptyComponent={
-                        <View style={styles.center}>
-                            <Text style={[styles.empty, dynamicStyles.subText]}>No activity logs found.</Text>
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyIcon}>📋</Text>
+                            <Text style={[styles.emptyText, { color: colors.subText }]}>No activity logs yet</Text>
                         </View>
                     }
                 />
             )}
-        </View>
+        </SafeAreaView>
     );
 }
 
@@ -169,80 +176,97 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
     },
-    tabBar: {
+    tabsWrapper: {
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
+    },
+    tabContainer: {
         flexDirection: 'row',
-        backgroundColor: 'rgba(0,0,0,0.05)',
-        margin: 15,
-        borderRadius: 10,
-        padding: 4,
+        padding: Spacing.md,
+        gap: Spacing.sm,
     },
-    tab: {
+    tabButton: {
         flex: 1,
-        paddingVertical: 10,
+        paddingVertical: Spacing.sm,
+        borderRadius: BorderRadius.full,
+        backgroundColor: '#F3F4F6',
         alignItems: 'center',
-        borderRadius: 8,
-    },
-    activeTab: {
-        backgroundColor: '#007AFF',
     },
     tabText: {
-        fontWeight: 'bold',
-        color: '#666',
-    },
-    activeTabText: {
-        color: 'white',
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
     },
     list: {
-        padding: 15,
-        paddingTop: 0,
+        padding: Spacing.md,
+        paddingBottom: Spacing.xl,
     },
-    row: {
+    card: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 15,
-        marginBottom: 12,
-        borderRadius: 12,
-        borderWidth: 1,
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
+        padding: Spacing.lg,
+        marginBottom: Spacing.md,
     },
-    residentId: {
-        fontWeight: 'bold',
-        fontSize: 14,
-        marginBottom: 2,
+    logInfo: {
+        flex: 1,
     },
-    timestamp: {
-        fontSize: 12,
+    name: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.bold,
         marginBottom: 4,
     },
-    distance: {
-        fontSize: 11,
+    metaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.sm,
+        marginBottom: 4,
+    },
+    roomBadge: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: BorderRadius.sm,
+        overflow: 'hidden',
+    },
+    timeText: {
+        fontSize: Typography.size.xs,
+    },
+    distanceText: {
+        fontSize: 10,
         fontStyle: 'italic',
     },
-    rightContent: {
-        alignItems: 'flex-end',
+    statusSection: {
+        marginLeft: Spacing.md,
     },
     badge: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 20,
+        paddingHorizontal: Spacing.sm,
+        paddingVertical: 4,
+        borderRadius: BorderRadius.sm,
+        minWidth: 70,
+        alignItems: 'center',
     },
     badgeText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 12,
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
     },
     center: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 50,
     },
-    empty: {
-        fontSize: 16,
+    emptyContainer: {
+        marginTop: 100,
+        alignItems: 'center',
+    },
+    emptyIcon: {
+        fontSize: 48,
+        marginBottom: Spacing.md,
+    },
+    emptyText: {
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.medium,
     }
 });
+

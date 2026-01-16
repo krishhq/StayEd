@@ -1,23 +1,28 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Button, Alert, ScrollView } from 'react-native';
-// Removed: import { db } from '../../config/firebaseConfig';
-// Removed: import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { addResident, registerUser } from '../../services/firestoreService';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
 export default function RegisterResidentScreen() {
+    const { hostelId, user, userData } = useAuth();
+    const { colors } = useTheme();
+    const navigation = useNavigation();
+
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('+91');
     const [email, setEmail] = useState('');
     const [room, setRoom] = useState('');
-
-    // New Fields
     const [guardianName, setGuardianName] = useState('');
     const [guardianPhone, setGuardianPhone] = useState('+91');
     const [permanentAddress, setPermanentAddress] = useState('');
     const [aadharCard, setAadharCard] = useState('');
-
-    const { hostelId, user, userData } = useAuth(); // Get Hostel ID from Auth Context
+    const [loading, setLoading] = useState(false);
 
     const handleRegister = async () => {
         if (!name || !phone || phone === '+91' || !guardianName || !guardianPhone || guardianPhone === '+91' || !room) {
@@ -26,17 +31,12 @@ export default function RegisterResidentScreen() {
         }
 
         if (!hostelId) {
-            console.error('[RegisterResidentScreen] Hostel ID missing!', {
-                uid: user?.uid,
-                hostelId,
-                userData
-            });
-            Alert.alert('Error', 'Hostel ID not found. Are you logged in as an Admin?');
+            Alert.alert('Error', 'Hostel ID not found. Configuration error.');
             return;
         }
 
+        setLoading(true);
         try {
-            // Create Resident Document
             const residentId = await addResident({
                 name,
                 phone,
@@ -46,10 +46,9 @@ export default function RegisterResidentScreen() {
                 guardianPhone,
                 permanentAddress,
                 aadharCard,
-                hostelId: hostelId, // Link to Admin's Hostel
+                hostelId: hostelId,
             });
 
-            // Create User Document for Resident (for login)
             await registerUser({
                 id: residentId,
                 name,
@@ -57,10 +56,9 @@ export default function RegisterResidentScreen() {
                 email,
                 role: 'resident',
                 hostelId: hostelId,
-                residentId: residentId, // Link back to resident record
-            }, residentId); // <-- Pass residentId as the Doc ID
+                residentId: residentId,
+            }, residentId);
 
-            // Create User Document for Guardian (for login)
             const guardianUserId = `guardian_${residentId}`;
             await registerUser({
                 id: guardianUserId,
@@ -68,11 +66,10 @@ export default function RegisterResidentScreen() {
                 phone: guardianPhone,
                 role: 'guardian',
                 hostelId: hostelId,
-                linkedResidentId: residentId, // Link to their child/ward
-            }, guardianUserId); // <-- Pass guardianUserId as the Doc ID
+                linkedResidentId: residentId,
+            }, guardianUserId);
 
-            Alert.alert('Success', 'Resident & Guardian Registered! Both can now login.');
-            // Reset Form (Keeping the prefix)
+            Alert.alert('Success', 'Resident & Guardian Registered successfully');
             setName('');
             setPhone('+91');
             setEmail('');
@@ -83,120 +80,147 @@ export default function RegisterResidentScreen() {
             setAadharCard('');
         } catch (error: any) {
             Alert.alert('Error', error.message);
+        } finally {
+            setLoading(false);
         }
     };
 
+    const renderInput = (label: string, value: string, onChange: (t: string) => void, placeholder: string, options: any = {}) => (
+        <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: colors.subText }]}>{label}</Text>
+            <TextInput
+                style={[
+                    styles.input,
+                    { backgroundColor: colors.background, color: colors.text, borderColor: colors.border },
+                    options.multiline && styles.textArea
+                ]}
+                value={value}
+                onChangeText={onChange}
+                placeholder={placeholder}
+                placeholderTextColor={colors.subText + '50'}
+                {...options}
+            />
+        </View>
+    );
+
     return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <Text style={styles.header}>Add New Resident</Text>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title="Add Resident" onBackPress={() => navigation.goBack()} />
 
-            <Text style={styles.sectionHeader}>Resident Details</Text>
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <Card style={styles.sectionCard}>
+                    <Text style={[styles.sectionTitle, { color: colors.primary }]}>Resident Identity</Text>
+                    {renderInput('FULL NAME*', name, setName, 'e.g. Rahul Sharma')}
+                    {renderInput('PHONE NUMBER*', phone, (text) => {
+                        if (!text.startsWith('+91')) setPhone('+91' + text.replace(/^\+?9?1?/, ''));
+                        else setPhone(text);
+                    }, '+91...', { keyboardType: 'phone-pad' })}
+                    {renderInput('EMAIL (OPTIONAL)', email, setEmail, 'student@example.com', { keyboardType: 'email-address' })}
 
-            <Text style={styles.label}>Full Name*</Text>
-            <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Student Name" />
+                    <View style={styles.row}>
+                        <View style={{ flex: 1 }}>
+                            {renderInput('ROOM*', room, setRoom, '101')}
+                        </View>
+                        <View style={{ width: Spacing.md }} />
+                        <View style={{ flex: 1.5 }}>
+                            {renderInput('AADHAR CARD', aadharCard, setAadharCard, '12 Digit UID', { keyboardType: 'number-pad' })}
+                        </View>
+                    </View>
+                </Card>
 
-            <Text style={styles.label}>Phone Number*</Text>
-            <TextInput
-                style={styles.input}
-                value={phone}
-                onChangeText={(text) => {
-                    if (!text.startsWith('+91')) {
-                        setPhone('+91' + text.replace(/^\+?9?1?/, ''));
-                    } else {
-                        setPhone(text);
-                    }
-                }}
-                keyboardType="phone-pad"
-                placeholder="+91..."
-            />
+                <Card style={styles.sectionCard}>
+                    <Text style={[styles.sectionTitle, { color: colors.primary }]}>Guardian Connection</Text>
+                    {renderInput('GUARDIAN NAME*', guardianName, setGuardianName, 'Parent/Guardian Name')}
+                    {renderInput('GUARDIAN PHONE*', guardianPhone, (text) => {
+                        if (!text.startsWith('+91')) setGuardianPhone('+91' + text.replace(/^\+?9?1?/, ''));
+                        else setGuardianPhone(text);
+                    }, '+91...', { keyboardType: 'phone-pad' })}
+                    {renderInput('PERMANENT ADDRESS', permanentAddress, setPermanentAddress, 'Full residential address...', { multiline: true, numberOfLines: 3 })}
+                </Card>
 
-            <Text style={styles.label}>Email (Optional)</Text>
-            <TextInput style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" placeholder="student@example.com" />
+                <TouchableOpacity
+                    style={[styles.submitBtn, { backgroundColor: colors.primary }, loading && { opacity: 0.7 }]}
+                    onPress={handleRegister}
+                    disabled={loading}
+                >
+                    <Text style={styles.submitText}>{loading ? 'Processing...' : 'Complete Registration'}</Text>
+                </TouchableOpacity>
 
-            <Text style={styles.label}>Room Number*</Text>
-            <TextInput style={styles.input} value={room} onChangeText={setRoom} placeholder="101" />
-
-            <Text style={styles.label}>Aadhar Card Number</Text>
-            <TextInput style={styles.input} value={aadharCard} onChangeText={setAadharCard} keyboardType="number-pad" placeholder="12 Digit UID" />
-
-            <Text style={styles.sectionHeader}>Guardian Details</Text>
-
-            <Text style={styles.label}>Guardian Name*</Text>
-            <TextInput style={styles.input} value={guardianName} onChangeText={setGuardianName} placeholder="Parent/Guardian Name" />
-
-            <Text style={styles.label}>Guardian Phone*</Text>
-            <TextInput
-                style={styles.input}
-                value={guardianPhone}
-                onChangeText={(text) => {
-                    if (!text.startsWith('+91')) {
-                        setGuardianPhone('+91' + text.replace(/^\+?9?1?/, ''));
-                    } else {
-                        setGuardianPhone(text);
-                    }
-                }}
-                keyboardType="phone-pad"
-                placeholder="+91..."
-            />
-
-            <Text style={styles.label}>Permanent Address</Text>
-            <TextInput
-                style={[styles.input, styles.textArea]}
-                value={permanentAddress}
-                onChangeText={setPermanentAddress}
-                placeholder="Full Address..."
-                multiline
-                numberOfLines={3}
-            />
-
-            <View style={styles.btnContainer}>
-                <Button title="Register Resident" onPress={handleRegister} />
-            </View>
-        </ScrollView>
+                <View style={styles.footerInfo}>
+                    <Text style={[styles.infoText, { color: colors.subText }]}>
+                        * Required fields. This will generate credentials for both Resident and Guardian.
+                    </Text>
+                </View>
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
-        padding: 20,
-        paddingBottom: 40,
+        flex: 1,
     },
-    header: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        marginBottom: 20,
-        color: '#333',
-        textAlign: 'center',
+    scrollContent: {
+        padding: Spacing.md,
+        paddingBottom: Spacing.xxl,
     },
-    sectionHeader: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginTop: 15,
-        marginBottom: 10,
-        color: '#007AFF',
-        borderBottomWidth: 1,
-        borderBottomColor: '#ddd',
-        paddingBottom: 5,
+    sectionCard: {
+        padding: Spacing.lg,
+        marginBottom: Spacing.lg,
+    },
+    sectionTitle: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
+        marginBottom: Spacing.lg,
+    },
+    inputGroup: {
+        marginBottom: Spacing.md,
     },
     label: {
-        fontWeight: '600',
-        marginTop: 10,
-        color: '#444',
+        fontSize: 9,
+        fontWeight: Typography.weight.bold,
+        letterSpacing: 1,
+        marginBottom: 6,
+        marginLeft: 4,
     },
     input: {
         borderWidth: 1,
-        borderColor: '#ccc',
-        padding: 10,
-        borderRadius: 5,
-        marginTop: 5,
-        backgroundColor: 'white',
+        borderRadius: BorderRadius.md,
+        padding: Spacing.md,
+        fontSize: Typography.size.sm,
     },
     textArea: {
         height: 80,
         textAlignVertical: 'top',
     },
-    btnContainer: {
-        marginTop: 30,
-        marginBottom: 20,
+    row: {
+        flexDirection: 'row',
+    },
+    submitBtn: {
+        paddingVertical: Spacing.lg,
+        borderRadius: BorderRadius.md,
+        alignItems: 'center',
+        ...Shadows.md,
+        marginTop: Spacing.md,
+        marginBottom: Spacing.xl,
+    },
+    submitText: {
+        color: 'white',
+        fontWeight: Typography.weight.bold,
+        fontSize: Typography.size.sm,
+        letterSpacing: 0.5,
+    },
+    footerInfo: {
+        alignItems: 'center',
+        paddingHorizontal: Spacing.xl,
+    },
+    infoText: {
+        fontSize: 11,
+        textAlign: 'center',
+        lineHeight: 16,
+        fontStyle: 'italic',
     }
 });
+

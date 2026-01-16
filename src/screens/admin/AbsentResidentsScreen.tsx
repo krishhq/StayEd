@@ -1,25 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, Linking, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../config/firebaseConfig';
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { ATTENDANCE_SLOTS } from '../../utils/attendanceUtils';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
 export default function AbsentResidentsScreen({ route }: any) {
     const { slotName, targetSlot } = route.params;
     const { hostelId } = useAuth();
     const { colors } = useTheme();
+    const navigation = useNavigation();
 
     const [absentResidents, setAbsentResidents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-
-    const dynamicStyles = {
-        container: { backgroundColor: colors.background },
-        text: { color: colors.text },
-        subText: { color: colors.subText },
-        card: { backgroundColor: colors.card, borderColor: colors.border },
-    };
 
     useEffect(() => {
         fetchAbsentResidents();
@@ -30,7 +29,6 @@ export default function AbsentResidentsScreen({ route }: any) {
         try {
             if (!hostelId) return;
 
-            // 1. Fetch All Active Residents in Hostel
             const residentsRef = collection(db, 'residents');
             const resQ = query(
                 residentsRef,
@@ -43,23 +41,11 @@ export default function AbsentResidentsScreen({ route }: any) {
                 allResidents.push({ id: doc.id, ...doc.data() });
             });
 
-            // 2. Fetch Attendance Logs for the target slot
-            const startTime = new Date();
-            startTime.setHours(Math.floor(ATTENDANCE_SLOTS.EVENING.start), (ATTENDANCE_SLOTS.EVENING.start % 1) * 60, 0, 0);
-
-            const endTime = new Date();
-            // Allow checking slightly past the slot end if needed, but usually strictly within slot
-            // Since we passed targetSlot, we assume we are checking that specific slot's logic
-            // Note: Currently we only support EVENING, so we default to that if simpler
-
-            // Re-using logic from Dashboard: Calculate precise range
             let startHour = 0, endHour = 0;
             if (targetSlot === 'EVENING') {
                 startHour = ATTENDANCE_SLOTS.EVENING.start;
                 endHour = ATTENDANCE_SLOTS.EVENING.end;
             }
-            // Support Morning for future or if requested (though deprecated)
-            // else if (targetSlot === 'MORNING') { ... }
 
             const start = new Date();
             start.setHours(Math.floor(startHour), (startHour % 1) * 60, 0, 0);
@@ -81,7 +67,6 @@ export default function AbsentResidentsScreen({ route }: any) {
                 attendedIds.add(doc.data().residentId);
             });
 
-            // 3. Filter Absent Residents
             const absentList = allResidents.filter(r => !attendedIds.has(r.id));
             setAbsentResidents(absentList);
 
@@ -99,47 +84,53 @@ export default function AbsentResidentsScreen({ route }: any) {
     };
 
     const renderItem = ({ item }: any) => (
-        <View style={[styles.card, dynamicStyles.card]}>
+        <Card style={styles.card} variant="elevated">
             <View style={styles.info}>
-                <Text style={[styles.name, dynamicStyles.text]}>{item.name}</Text>
-                <Text style={[styles.details, dynamicStyles.subText]}>
-                    Room: {item.roomNumber || 'N/A'} • Phone: {item.phone}
-                </Text>
-                {(item.guardianName || item.guardianPhone) && (
-                    <Text style={[styles.guardianInfo, dynamicStyles.subText]}>
-                        Guardian: {item.guardianName || 'N/A'} ({item.guardianPhone || 'N/A'})
+                <Text style={[styles.name, { color: colors.text }]}>{item.name}</Text>
+                <View style={styles.metaRow}>
+                    <Text style={[styles.roomBadge, { backgroundColor: colors.background, color: colors.subText }]}>
+                        Room {item.roomNumber || 'N/A'}
+                    </Text>
+                    <Text style={[styles.phoneText, { color: colors.subText }]}>{item.phone}</Text>
+                </View>
+                {item.guardianName && (
+                    <Text style={[styles.guardianInfo, { color: colors.subText }]}>
+                        Guardian: {item.guardianName}
                     </Text>
                 )}
             </View>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={styles.actionGroup}>
                 <TouchableOpacity
-                    style={[styles.callBtn, { backgroundColor: '#2196F3' }]}
+                    style={[styles.callBtn, { backgroundColor: colors.primary }]}
                     onPress={() => handleCall(item.phone)}
                 >
                     <Text style={styles.callIcon}>📱</Text>
                 </TouchableOpacity>
                 {item.guardianPhone && (
                     <TouchableOpacity
-                        style={[styles.callBtn, { backgroundColor: '#FF9800' }]}
+                        style={[styles.callBtn, { backgroundColor: '#F59E0B' }]}
                         onPress={() => handleCall(item.guardianPhone)}
                     >
                         <Text style={styles.callIcon}>🏡</Text>
                     </TouchableOpacity>
                 )}
             </View>
-        </View>
+        </Card>
     );
 
     return (
-        <View style={[styles.container, dynamicStyles.container]}>
-            <View style={styles.header}>
-                <Text style={[styles.title, dynamicStyles.text]}>Absent: {slotName}</Text>
-                <Text style={[styles.count, dynamicStyles.subText]}>Total: {absentResidents.length}</Text>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title={`Absent: ${slotName}`} onBackPress={() => navigation.goBack()} />
+
+            <View style={[styles.statsBar, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.statsText, { color: colors.subText }]}>
+                    <Text style={{ fontWeight: 'bold', color: colors.text }}>{absentResidents.length}</Text> residents missing
+                </Text>
             </View>
 
             {loading ? (
                 <View style={styles.center}>
-                    <ActivityIndicator size="large" color="#007AFF" />
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
             ) : (
                 <FlatList
@@ -147,14 +138,16 @@ export default function AbsentResidentsScreen({ route }: any) {
                     keyExtractor={item => item.id}
                     renderItem={renderItem}
                     contentContainerStyle={styles.list}
+                    showsVerticalScrollIndicator={false}
                     ListEmptyComponent={
-                        <View style={styles.center}>
-                            <Text style={[styles.empty, dynamicStyles.subText]}>No residents absent.</Text>
+                        <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyIcon}>🎉</Text>
+                            <Text style={[styles.emptyText, { color: colors.subText }]}>Everyone is present!</Text>
                         </View>
                     }
                 />
             )}
-        </View>
+        </SafeAreaView>
     );
 }
 
@@ -162,67 +155,85 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
     },
-    header: {
-        padding: 20,
-        backgroundColor: 'rgba(0,0,0,0.02)',
+    statsBar: {
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.md,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(0,0,0,0.05)',
     },
-    title: {
-        fontSize: 20,
-        fontWeight: 'bold',
-    },
-    count: {
-        fontSize: 14,
-        marginTop: 5,
+    statsText: {
+        fontSize: Typography.size.sm,
     },
     list: {
-        padding: 15,
+        padding: Spacing.md,
+        paddingBottom: Spacing.xl,
     },
     card: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 15,
-        marginBottom: 10,
-        borderRadius: 10,
-        borderWidth: 1,
-        elevation: 2,
+        padding: Spacing.lg,
+        marginBottom: Spacing.md,
     },
     info: {
         flex: 1,
     },
     name: {
-        fontSize: 16,
-        fontWeight: 'bold',
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
         marginBottom: 4,
     },
-    details: {
-        fontSize: 14,
+    metaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.sm,
+        marginBottom: 4,
+    },
+    roomBadge: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: BorderRadius.sm,
+        overflow: 'hidden',
+    },
+    phoneText: {
+        fontSize: Typography.size.xs,
     },
     guardianInfo: {
-        fontSize: 12,
-        marginTop: 4,
+        fontSize: 10,
         fontStyle: 'italic',
     },
+    actionGroup: {
+        flexDirection: 'row',
+        gap: Spacing.sm,
+    },
     callBtn: {
-        backgroundColor: '#4CAF50',
-        padding: 10,
-        borderRadius: 25,
-        marginLeft: 10,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+        ...Shadows.sm,
     },
     callIcon: {
         fontSize: 18,
-        color: 'white',
     },
     center: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 50,
     },
-    empty: {
-        fontSize: 16,
-        fontStyle: 'italic',
+    emptyContainer: {
+        marginTop: 100,
+        alignItems: 'center',
+    },
+    emptyIcon: {
+        fontSize: 48,
+        marginBottom: Spacing.md,
+    },
+    emptyText: {
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.medium,
     }
 });
+

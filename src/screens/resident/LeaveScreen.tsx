@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Alert, ScrollView, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { db } from '../../config/firebaseConfig';
 import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { sendPushNotification } from '../../utils/notificationUtils';
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
 
 export default function LeaveScreen() {
     const { user, hostelId, residentId } = useAuth();
+    const { colors } = useTheme();
+    const navigation = useNavigation();
     const [reason, setReason] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -32,7 +40,6 @@ export default function LeaveScreen() {
             }
         } catch (error) {
             console.warn('[LeaveScreen] Error fetching status:', error);
-            // Fallback: Fetch without orderBy if index missing
             const qFallback = query(collection(db, 'leaves'), where('residentId', '==', residentId));
             const snap = await getDocs(qFallback);
             if (!snap.empty) {
@@ -52,7 +59,6 @@ export default function LeaveScreen() {
         setLoading(true);
         try {
             if (user && hostelId) {
-                // 1. Submit leave request
                 const leaveData = {
                     userId: user.uid,
                     residentId: residentId,
@@ -66,11 +72,8 @@ export default function LeaveScreen() {
 
                 await addDoc(collection(db, 'leaves'), leaveData);
 
-                // 2. Notify Guardian
-                // Fetch resident's data directly using residentId
                 let guardianPhone = '';
                 let residentName = 'A resident';
-
                 if (residentId) {
                     const residentDocRef = doc(db, 'residents', residentId);
                     const residentSnap = await getDoc(residentDocRef);
@@ -82,9 +85,7 @@ export default function LeaveScreen() {
                 }
 
                 if (guardianPhone) {
-                    // Find guardian user with this phone
                     const guardianUserSnap = await getDocs(query(collection(db, 'users'), where('phone', '==', guardianPhone), where('role', '==', 'guardian')));
-
                     if (!guardianUserSnap.empty) {
                         const guardianToken = guardianUserSnap.docs[0].data().pushToken;
                         if (guardianToken) {
@@ -103,9 +104,6 @@ export default function LeaveScreen() {
                 setStartDate('');
                 setEndDate('');
                 fetchLatestStatus();
-            } else {
-                console.log({ reason, startDate, endDate });
-                Alert.alert('Dev Mode', 'Leave logged to console');
             }
         } catch (error: any) {
             Alert.alert('Error', error.message);
@@ -114,172 +112,227 @@ export default function LeaveScreen() {
         }
     };
 
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            case 'approved': return '#10B981';
+            case 'rejected': return '#F43F5E';
+            case 'pending_admin': return '#3B82F6';
+            default: return '#F59E0B';
+        }
+    };
+
     return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <Text style={styles.header}>Apply for Leave</Text>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title="Leave Application" onBackPress={() => navigation.goBack()} />
 
-            <Text style={styles.label}>Reason for Leave</Text>
-            <TextInput
-                style={styles.input}
-                value={reason}
-                onChangeText={setReason}
-                placeholder="e.g. Going home for festival"
-            />
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <Card style={styles.formCard}>
+                    <Text style={[styles.formTitle, { color: colors.text }]}>Apply for Leave</Text>
 
-            <Text style={styles.label}>Start Date (DD/MM/YYYY)</Text>
-            <TextInput
-                style={styles.input}
-                value={startDate}
-                onChangeText={setStartDate}
-                placeholder="25/12/2026"
-            />
+                    <View style={styles.inputGroup}>
+                        <Text style={[styles.label, { color: colors.subText }]}>Reason for Leave</Text>
+                        <TextInput
+                            style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                            value={reason}
+                            onChangeText={setReason}
+                            placeholder="e.g. Going home for festival"
+                            placeholderTextColor={colors.subText + '50'}
+                        />
+                    </View>
 
-            <Text style={styles.label}>End Date (DD/MM/YYYY)</Text>
-            <TextInput
-                style={styles.input}
-                value={endDate}
-                onChangeText={setEndDate}
-                placeholder="01/01/2027"
-            />
-
-            <View style={styles.btnContainer}>
-                <Button title={loading ? "Submitting..." : "Submit Application"} onPress={submitLeave} disabled={loading} />
-            </View>
-
-            {latestLeave && (
-                <View style={styles.statusSection}>
-                    <Text style={styles.statusTitle}>Recent Application Status</Text>
-                    <View style={styles.statusBar}>
-                        <View style={[styles.statusStep, (latestLeave.status === 'pending_guardian' || latestLeave.status === 'pending_admin' || latestLeave.status === 'approved') && styles.stepActive]}>
-                            <Text style={styles.stepIcon}>📝</Text>
-                            <Text style={styles.stepLabel}>Applied</Text>
+                    <View style={styles.dateRow}>
+                        <View style={[styles.inputGroup, { flex: 1 }]}>
+                            <Text style={[styles.label, { color: colors.subText }]}>Start Date</Text>
+                            <TextInput
+                                style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                                value={startDate}
+                                onChangeText={setStartDate}
+                                placeholder="DD/MM/YYYY"
+                                placeholderTextColor={colors.subText + '50'}
+                            />
                         </View>
-                        <View style={styles.stepLine} />
-                        <View style={[styles.statusStep, (latestLeave.status === 'pending_admin' || latestLeave.status === 'approved') && styles.stepActive]}>
-                            <Text style={styles.stepIcon}>🛡️</Text>
-                            <Text style={styles.stepLabel}>Guardian</Text>
-                        </View>
-                        <View style={styles.stepLine} />
-                        <View style={[styles.statusStep, latestLeave.status === 'approved' && styles.stepActive]}>
-                            <Text style={styles.stepIcon}>🏢</Text>
-                            <Text style={styles.stepLabel}>Admin</Text>
+                        <View style={[styles.inputGroup, { flex: 1 }]}>
+                            <Text style={[styles.label, { color: colors.subText }]}>End Date</Text>
+                            <TextInput
+                                style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                                value={endDate}
+                                onChangeText={setEndDate}
+                                placeholder="DD/MM/YYYY"
+                                placeholderTextColor={colors.subText + '50'}
+                            />
                         </View>
                     </View>
 
-                    <View style={[
-                        styles.statusBadge,
-                        { backgroundColor: latestLeave.status === 'approved' ? '#27ae60' : latestLeave.status === 'rejected' ? '#e74c3c' : '#f39c12' }
-                    ]}>
-                        <Text style={styles.statusBadgeText}>
-                            {latestLeave.status === 'pending_guardian' && '🕒 Waiting for Guardian'}
-                            {latestLeave.status === 'pending_admin' && '⏳ Approved by Guardian - Waiting for Admin'}
-                            {latestLeave.status === 'approved' && '✅ Leave Finalized'}
-                            {latestLeave.status === 'rejected' && '❌ Leave Rejected'}
-                        </Text>
-                    </View>
+                    <TouchableOpacity
+                        style={[styles.submitBtn, { backgroundColor: colors.primary }, loading && { opacity: 0.7 }]}
+                        onPress={submitLeave}
+                        disabled={loading}
+                    >
+                        <Text style={styles.submitBtnText}>{loading ? "Processing..." : "Submit Application"}</Text>
+                    </TouchableOpacity>
+                </Card>
 
-                    <View style={styles.leaveInfo}>
-                        <Text style={styles.infoRow}>Reason: <Text style={{ fontWeight: 'normal' }}>{latestLeave.reason}</Text></Text>
-                        <Text style={styles.infoRow}>Dates: <Text style={{ fontWeight: 'normal' }}>{latestLeave.startDate} - {latestLeave.endDate}</Text></Text>
-                    </View>
-                </View>
-            )}
-        </ScrollView>
+                {latestLeave && (
+                    <Card style={styles.statusCard} variant="outlined">
+                        <Text style={[styles.statusTitle, { color: colors.text }]}>Recent Application Status</Text>
+
+                        <View style={styles.stepper}>
+                            <View style={styles.stepperLine}>
+                                <View style={[styles.progressLine, {
+                                    backgroundColor: colors.primary,
+                                    width: latestLeave.status === 'approved' ? '100%' : latestLeave.status === 'pending_admin' ? '50%' : '0%'
+                                }]} />
+                            </View>
+
+                            <View style={styles.step}>
+                                <View style={[styles.dot, (latestLeave.status === 'pending_guardian' || latestLeave.status === 'pending_admin' || latestLeave.status === 'approved') && { backgroundColor: colors.primary }]} />
+                                <Text style={[styles.stepText, { color: colors.subText }]}>Applied</Text>
+                            </View>
+                            <View style={styles.step}>
+                                <View style={[styles.dot, (latestLeave.status === 'pending_admin' || latestLeave.status === 'approved') && { backgroundColor: colors.primary }]} />
+                                <Text style={[styles.stepText, { color: colors.subText }]}>Guardian</Text>
+                            </View>
+                            <View style={styles.step}>
+                                <View style={[styles.dot, latestLeave.status === 'approved' && { backgroundColor: colors.primary }]} />
+                                <Text style={[styles.stepText, { color: colors.subText }]}>Admin</Text>
+                            </View>
+                        </View>
+
+                        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(latestLeave.status) + '15' }]}>
+                            <Text style={[styles.statusBadgeText, { color: getStatusColor(latestLeave.status) }]}>
+                                {latestLeave.status === 'pending_guardian' && '🕒 Awaiting Guardian Approval'}
+                                {latestLeave.status === 'pending_admin' && '⏳ Approved by Guardian - Awaiting Admin'}
+                                {latestLeave.status === 'approved' && '✅ Leave Fully Approved'}
+                                {latestLeave.status === 'rejected' && '❌ Leave Application Rejected'}
+                            </Text>
+                        </View>
+
+                        <View style={[styles.leaveDetails, { borderTopColor: colors.border }]}>
+                            <Text style={[styles.detailItem, { color: colors.subText }]}>
+                                <Text style={styles.detailLabel}>Reason: </Text>{latestLeave.reason}
+                            </Text>
+                            <Text style={[styles.detailItem, { color: colors.subText }]}>
+                                <Text style={styles.detailLabel}>Dates: </Text>{latestLeave.startDate} — {latestLeave.endDate}
+                            </Text>
+                        </View>
+                    </Card>
+                )}
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
-        padding: 20,
+        flex: 1,
     },
-    header: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        marginBottom: 20,
+    scrollContent: {
+        padding: Spacing.md,
+        paddingBottom: Spacing.xxl,
+    },
+    formCard: {
+        padding: Spacing.lg,
+        marginBottom: Spacing.xl,
+    },
+    formTitle: {
+        fontSize: Typography.size.lg,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.lg,
+    },
+    inputGroup: {
+        marginBottom: Spacing.md,
     },
     label: {
-        fontWeight: 'bold',
-        marginTop: 15,
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.xs,
+        marginLeft: 4,
     },
     input: {
         borderWidth: 1,
-        borderColor: '#ccc',
-        padding: 10,
-        borderRadius: 5,
-        marginTop: 5,
-        backgroundColor: 'white',
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+        borderRadius: BorderRadius.md,
+        fontSize: Typography.size.md,
     },
-    btnContainer: {
-        marginTop: 30,
-        marginBottom: 30,
+    dateRow: {
+        flexDirection: 'row',
+        gap: Spacing.md,
     },
-    statusSection: {
-        marginTop: 10,
-        backgroundColor: 'white',
-        padding: 20,
-        borderRadius: 15,
-        elevation: 3,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        marginBottom: 40,
+    submitBtn: {
+        marginTop: Spacing.md,
+        paddingVertical: Spacing.md,
+        borderRadius: BorderRadius.md,
+        alignItems: 'center',
+        ...Shadows.sm,
+    },
+    submitBtnText: {
+        color: 'white',
+        fontWeight: Typography.weight.bold,
+        fontSize: Typography.size.md,
+    },
+    statusCard: {
+        padding: Spacing.lg,
     },
     statusTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 20,
-        color: '#2c3e50',
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.xl,
     },
-    statusBar: {
+    stepper: {
         flexDirection: 'row',
-        alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 20,
+        paddingHorizontal: Spacing.xl,
+        marginBottom: Spacing.xl,
+        position: 'relative',
     },
-    statusStep: {
-        alignItems: 'center',
-        opacity: 0.3,
-    },
-    stepActive: {
-        opacity: 1,
-    },
-    stepIcon: {
-        fontSize: 20,
-        marginBottom: 4,
-    },
-    stepLabel: {
-        fontSize: 10,
-        fontWeight: 'bold',
-        color: '#34495e',
-    },
-    stepLine: {
-        flex: 1,
+    stepperLine: {
+        position: 'absolute',
+        top: 6,
+        left: Spacing.xl + 6,
+        right: Spacing.xl + 6,
         height: 2,
-        backgroundColor: '#eee',
-        marginHorizontal: 10,
-        marginTop: -15,
+        backgroundColor: '#E5E7EB',
+        zIndex: -1,
+    },
+    progressLine: {
+        height: '100%',
+    },
+    step: {
+        alignItems: 'center',
+    },
+    dot: {
+        width: 14,
+        height: 14,
+        borderRadius: 7,
+        backgroundColor: '#E5E7EB',
+        marginBottom: Spacing.xs,
+    },
+    stepText: {
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
     },
     statusBadge: {
-        padding: 12,
-        borderRadius: 8,
+        paddingVertical: Spacing.sm,
+        paddingHorizontal: Spacing.md,
+        borderRadius: BorderRadius.md,
         alignItems: 'center',
-        marginBottom: 15,
+        marginBottom: Spacing.lg,
     },
     statusBadgeText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 13,
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
     },
-    leaveInfo: {
+    leaveDetails: {
         borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
-        paddingTop: 15,
+        paddingTop: Spacing.md,
     },
-    infoRow: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#7f8c8d',
-        marginBottom: 5,
-    }
+    detailItem: {
+        fontSize: Typography.size.sm,
+        marginBottom: 4,
+    },
+    detailLabel: {
+        fontWeight: Typography.weight.bold,
+    },
 });
+

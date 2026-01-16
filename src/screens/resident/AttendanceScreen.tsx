@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import * as Location from 'expo-location';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { db } from '../../config/firebaseConfig';
@@ -20,9 +22,15 @@ interface EntryExitLog {
     distance?: number;
 }
 
+import ScreenHeader from '../../components/ScreenHeader';
+import Card from '../../components/Card';
+import { Spacing, BorderRadius, Typography, Shadows } from '../../constants/DesignSystem';
+import { useNavigation } from '@react-navigation/native';
+
 export default function AttendanceScreen() {
     const { user, hostelId, residentId, hostelData } = useAuth();
-    const { colors } = useTheme();
+    const { colors, theme } = useTheme();
+    const navigation = useNavigation();
     const [location, setLocation] = useState<Location.LocationObject | null>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -31,21 +39,12 @@ export default function AttendanceScreen() {
     const [isInsideCampus, setIsInsideCampus] = useState<boolean>(false);
     const [recentLogs, setRecentLogs] = useState<EntryExitLog[]>([]);
 
-    const dynamicStyles = {
-        container: { backgroundColor: colors.background },
-        text: { color: colors.text },
-        subText: { color: colors.subText },
-        card: { backgroundColor: colors.card },
-    };
-
     useEffect(() => {
-        // Only fetch recent entry/exit logs on mount
         fetchRecentLogs();
     }, []);
 
     const fetchRecentLogs = async () => {
         if (!user) return;
-
         try {
             const q = query(
                 collection(db, 'entry_exit_logs'),
@@ -66,8 +65,6 @@ export default function AttendanceScreen() {
     };
 
     const fetchLocation = async () => {
-        // Use hostelData from AuthContext (multi-tenant system)
-        // Fall back to HOSTEL_COORDINATES if not configured
         const hostelLocation = hostelData?.location || {
             latitude: HOSTEL_COORDINATES.latitude,
             longitude: HOSTEL_COORDINATES.longitude
@@ -86,8 +83,6 @@ export default function AttendanceScreen() {
             }
 
             let location = await Location.getCurrentPositionAsync({});
-
-            // Calculate distance from hostel
             const dist = calculateDistance(
                 location.coords.latitude,
                 location.coords.longitude,
@@ -98,7 +93,6 @@ export default function AttendanceScreen() {
             setLocation(location);
             setDistance(dist);
             setIsInsideCampus(dist <= GEOFENCE_RADIUS);
-
             return { location, distance: dist, isInside: dist <= GEOFENCE_RADIUS };
         } catch (error) {
             console.log('Error fetching location:', error);
@@ -108,11 +102,7 @@ export default function AttendanceScreen() {
 
     const verifyBiometric = async () => {
         const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        if (!hasHardware) {
-            Alert.alert('Warning', 'Biometric hardware not available, skipping check (Dev Mode)');
-            return true;
-        }
-
+        if (!hasHardware) return true;
         const result = await LocalAuthentication.authenticateAsync({
             promptMessage: 'Verify Identity',
         });
@@ -120,7 +110,6 @@ export default function AttendanceScreen() {
     };
 
     const handleMarkAttendance = async (bypassTime = false) => {
-        // 1. Check Time Slot (Skip if bypassing)
         if (!bypassTime) {
             const timeCheck = isWithinTimeSlot();
             if (!timeCheck.allowed) {
@@ -130,13 +119,9 @@ export default function AttendanceScreen() {
                 );
                 return;
             }
-        } else {
-            console.log("Dev Bypass: Skipping Time Constraint");
         }
 
         setLoading(true);
-
-        // 2. Fetch Location
         const locationData = await fetchLocation();
         if (!locationData) {
             Alert.alert('Error', 'Could not fetch location. Please enable location services.');
@@ -144,24 +129,15 @@ export default function AttendanceScreen() {
             return;
         }
 
-        // 3. Check if inside campus
-        if (!locationData.isInside) {
-            if (bypassTime) {
-                console.log("Dev Bypass: Ignoring Location Distance Check");
-                // Force isInside to true for the rest of the logic
-                // We keep the actual location data for logging/truth
-            } else {
-                Alert.alert(
-                    '⚠️ Outside Campus',
-                    `You are ${locationData.distance.toFixed(0)}m away from campus.\n\nPlease return to campus area (within ${GEOFENCE_RADIUS}m) to mark attendance.`,
-                    [{ text: 'OK' }]
-                );
-                setLoading(false);
-                return;
-            }
+        if (!locationData.isInside && !bypassTime) {
+            Alert.alert(
+                '⚠️ Outside Campus',
+                `You are ${locationData.distance.toFixed(0)}m away from campus.\n\nPlease return to campus area (within ${GEOFENCE_RADIUS}m).`
+            );
+            setLoading(false);
+            return;
         }
 
-        // 4. Verify Biometric
         const biometricSuccess = await verifyBiometric();
         if (!biometricSuccess) {
             Alert.alert('Failed', 'Biometric verification failed');
@@ -169,7 +145,6 @@ export default function AttendanceScreen() {
             return;
         }
 
-        // 5. Save to Firestore
         try {
             if (user && hostelId) {
                 await addDoc(collection(db, 'attendance'), {
@@ -182,9 +157,6 @@ export default function AttendanceScreen() {
                     distance: locationData.distance
                 });
                 Alert.alert('✅ Success', 'Attendance marked successfully!');
-            } else {
-                console.log('[Dev] Attendance Logged', { location: locationData.location.coords, distance: locationData.distance });
-                Alert.alert('✅ Dev Success', 'Attendance logged to console');
             }
         } catch (err: any) {
             Alert.alert('Error', err.message);
@@ -194,8 +166,6 @@ export default function AttendanceScreen() {
 
     const handleEntryExit = async (type: 'entry' | 'exit') => {
         setEntryExitLoading(true);
-
-        // 1. Verify Biometric
         const biometricSuccess = await verifyBiometric();
         if (!biometricSuccess) {
             Alert.alert('Failed', 'Biometric verification failed');
@@ -203,7 +173,6 @@ export default function AttendanceScreen() {
             return;
         }
 
-        // 2. Save to Firestore (without location)
         try {
             if (user && hostelId) {
                 await addDoc(collection(db, 'entry_exit_logs'), {
@@ -213,12 +182,8 @@ export default function AttendanceScreen() {
                     type: type,
                     timestamp: serverTimestamp(),
                 });
-                Alert.alert('✅ Success', `${type.charAt(0).toUpperCase() + type.slice(1)} logged successfully!`);
-                // Refresh logs
+                Alert.alert('✅ Success', `${type.toUpperCase()} logged successfully!`);
                 fetchRecentLogs();
-            } else {
-                console.log(`[Dev] ${type} Logged`);
-                Alert.alert('✅ Dev Success', `${type} logged to console`);
             }
         } catch (err: any) {
             Alert.alert('Error', err.message);
@@ -230,302 +195,244 @@ export default function AttendanceScreen() {
         if (!timestamp) return 'Just now';
         const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
         return date.toLocaleString('en-IN', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
         });
     };
 
     return (
-        <ScrollView style={[styles.container, dynamicStyles.container]}>
-            <Text style={[styles.header, dynamicStyles.text]}>Attendance & Entry/Exit</Text>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+            <ScreenHeader title="Attendance" onBackPress={() => navigation.goBack()} />
 
-            {errorMsg ? (
-                <Text style={styles.error}>{errorMsg}</Text>
-            ) : (
-                <>
-                    {/* Campus Status Card - Only shown when location is available */}
-                    {location && distance !== null && (
-                        <View style={[
-                            styles.statusCard,
-                            { backgroundColor: isInsideCampus ? '#4CAF50' : '#FF5252' }
-                        ]}>
-                            <Text style={styles.statusIcon}>{isInsideCampus ? '✅' : '❌'}</Text>
-                            <Text style={styles.statusText}>
-                                {isInsideCampus ? 'Inside Campus' : 'Outside Campus'}
-                            </Text>
-                            <Text style={styles.statusSubtext}>
-                                {distance.toFixed(0)}m from campus
-                            </Text>
-                        </View>
-                    )}
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
 
-                    {/* Entry/Exit Buttons */}
-                    <View style={styles.entryExitContainer}>
-                        <Text style={[styles.sectionTitle, dynamicStyles.text]}>Log Entry/Exit</Text>
-                        <View style={styles.buttonRow}>
-                            <TouchableOpacity
-                                style={[styles.entryBtn, entryExitLoading && styles.btnDisabled]}
-                                onPress={() => handleEntryExit('entry')}
-                                disabled={entryExitLoading}
-                            >
-                                {entryExitLoading ? (
-                                    <ActivityIndicator color="white" size="small" />
-                                ) : (
-                                    <>
-                                        <Text style={styles.btnIcon}>🚪➡️</Text>
-                                        <Text style={styles.btnText}>Log Entry</Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
+                {/* Campus Status */}
+                {location && distance !== null && (
+                    <Card
+                        style={[styles.statusCard, { backgroundColor: isInsideCampus ? '#10B981' : colors.error }]}
+                        variant="elevated"
+                    >
+                        <Text style={styles.statusIcon}>{isInsideCampus ? '📍' : '🚶'}</Text>
+                        <Text style={styles.statusTitle}>
+                            {isInsideCampus ? 'Inside Campus' : 'Outside Campus'}
+                        </Text>
+                        <Text style={styles.statusDetail}>
+                            {distance.toFixed(0)}m from center
+                        </Text>
+                    </Card>
+                )}
 
-                            <TouchableOpacity
-                                style={[styles.exitBtn, entryExitLoading && styles.btnDisabled]}
-                                onPress={() => handleEntryExit('exit')}
-                                disabled={entryExitLoading}
-                            >
-                                {entryExitLoading ? (
-                                    <ActivityIndicator color="white" size="small" />
-                                ) : (
-                                    <>
-                                        <Text style={styles.btnIcon}>🚪⬅️</Text>
-                                        <Text style={styles.btnText}>Log Exit</Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
-                        </View>
-                    </View>
+                {/* Entry/Exit Section */}
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Daily Movement</Text>
+                <View style={styles.buttonRow}>
+                    <TouchableOpacity
+                        style={[styles.actionBtn, { backgroundColor: '#10B981' }, entryExitLoading && styles.btnDisabled]}
+                        onPress={() => handleEntryExit('entry')}
+                        disabled={entryExitLoading}
+                    >
+                        {entryExitLoading ? <ActivityIndicator color="white" /> : (
+                            <>
+                                <Text style={styles.btnIcon}>➡️</Text>
+                                <Text style={styles.btnLabel}>Entry</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
 
-                    {/* Recent Entry/Exit Logs */}
-                    {recentLogs.length > 0 && (
-                        <View style={[styles.card, dynamicStyles.card]}>
-                            <Text style={[styles.cardTitle, dynamicStyles.text]}>📋 Recent Logs</Text>
-                            {recentLogs.map((log) => (
-                                <View key={log.id} style={styles.logItem}>
-                                    <View style={[
-                                        styles.logBadge,
-                                        { backgroundColor: log.type === 'entry' ? '#4CAF50' : '#FF5252' }
-                                    ]}>
-                                        <Text style={styles.logBadgeText}>
-                                            {log.type === 'entry' ? '➡️ Entry' : '⬅️ Exit'}
-                                        </Text>
-                                    </View>
-                                    <Text style={[styles.logTime, dynamicStyles.subText]}>
-                                        {formatTimestamp(log.timestamp)}
-                                    </Text>
+                    <TouchableOpacity
+                        style={[styles.actionBtn, { backgroundColor: '#F43F5E' }, entryExitLoading && styles.btnDisabled]}
+                        onPress={() => handleEntryExit('exit')}
+                        disabled={entryExitLoading}
+                    >
+                        {entryExitLoading ? <ActivityIndicator color="white" /> : (
+                            <>
+                                <Text style={styles.btnIcon}>⬅️</Text>
+                                <Text style={styles.btnLabel}>Exit</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                </View>
+
+                {/* Recent Logs Preview */}
+                {recentLogs.length > 0 && (
+                    <Card style={styles.logsCard} variant="outlined">
+                        <Text style={[styles.cardHeader, { color: colors.subText }]}>Recent Activity</Text>
+                        {recentLogs.map((log, index) => (
+                            <View key={log.id} style={[styles.logRow, index === recentLogs.length - 1 && { borderBottomWidth: 0 }]}>
+                                <View style={[styles.typeBadge, { backgroundColor: log.type === 'entry' ? '#10B981' : '#F43F5E' }]}>
+                                    <Text style={styles.typeText}>{log.type.toUpperCase()}</Text>
                                 </View>
-                            ))}
-                        </View>
+                                <Text style={[styles.logTime, { color: colors.text }]}>{formatTimestamp(log.timestamp)}</Text>
+                            </View>
+                        ))}
+                    </Card>
+                )}
+
+                {/* Main Attendance Section */}
+                <Text style={[styles.sectionTitle, { color: colors.text, marginTop: Spacing.xl }]}>Main Register</Text>
+                <TouchableOpacity
+                    style={[styles.mainBtn, { backgroundColor: colors.primary }, loading && styles.btnDisabled]}
+                    onPress={() => handleMarkAttendance(false)}
+                    disabled={loading}
+                >
+                    {loading ? <ActivityIndicator color="white" /> : (
+                        <Text style={styles.mainBtnText}>🔐 Mark Daily Attendance</Text>
                     )}
+                </TouchableOpacity>
 
-                    {/* Mark Attendance Button */}
-                    <View style={styles.attendanceSection}>
-                        <Text style={[styles.sectionTitle, dynamicStyles.text]}>Daily Attendance</Text>
-                        <TouchableOpacity
-                            style={[styles.attendanceBtn, loading && styles.btnDisabled]}
-                            onPress={() => handleMarkAttendance(false)}
-                            disabled={loading}
-                        >
-                            {loading ? (
-                                <ActivityIndicator color="white" />
-                            ) : (
-                                <Text style={styles.btnText}>🔐 Mark Attendance</Text>
-                            )}
-                        </TouchableOpacity>
+                {/* Dev Tools */}
+                <TouchableOpacity
+                    style={styles.devBtn}
+                    onPress={() => {
+                        Alert.alert('Dev Mode', 'Bypass geofence/time constraints?', [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Force Mark', onPress: () => handleMarkAttendance(true) }
+                        ]);
+                    }}
+                >
+                    <Text style={[styles.devBtnText, { color: colors.subText }]}>🛠️ Dev Override</Text>
+                </TouchableOpacity>
 
-                        {/* DEV ONLY BUTTON */}
-                        <TouchableOpacity
-                            style={[styles.devBtn, { marginTop: 10 }]}
-                            onPress={() => {
-                                Alert.alert(
-                                    'Dev Mode',
-                                    'Bypass time constraint and mark attendance?',
-                                    [
-                                        { text: 'Cancel', style: 'cancel' },
-                                        { text: 'Yes, Force Mark', onPress: () => handleMarkAttendance(true) }
-                                    ]
-                                );
-                            }}
-                        >
-                            <Text style={styles.devBtnText}>🛠️ [Dev] Force Attendance</Text>
-                        </TouchableOpacity>
-
-                        {/* Time Slot Info */}
-                        <View style={[styles.infoBox, dynamicStyles.card, { marginTop: 15 }]}>
-                            <Text style={[styles.infoBoxTitle, dynamicStyles.text]}>⏰ Attendance Time Slots</Text>
-                            <Text style={[styles.infoBoxText, dynamicStyles.subText]}>• Evening: 8:00 PM - 9:30 PM</Text>
-                        </View>
-                    </View>
-                </>
-            )}
-        </ScrollView>
+                {/* Info Card */}
+                <Card style={styles.infoCard} variant="flat">
+                    <Text style={[styles.infoTitle, { color: colors.text }]}>⏰ Attendance Windows</Text>
+                    <Text style={[styles.infoText, { color: colors.subText }]}>• Evening Slot: 08:00 PM - 09:30 PM</Text>
+                    <Text style={[styles.infoText, { color: colors.subText }]}>Make sure you are within {GEOFENCE_RADIUS}m of the campus center.</Text>
+                </Card>
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        padding: 20,
-        paddingTop: 60,
     },
-    header: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        marginBottom: 30,
+    scrollContent: {
+        padding: Spacing.md,
+        paddingBottom: Spacing.xxl,
+    },
+    errorText: {
+        color: '#F43F5E',
         textAlign: 'center',
-    },
-    card: {
-        padding: 20,
-        borderRadius: 15,
-        marginBottom: 15,
-        elevation: 3,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-    },
-    cardTitle: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        marginBottom: 10,
-    },
-    infoText: {
-        fontSize: 14,
-        marginVertical: 2,
-    },
-    distanceText: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        textAlign: 'center',
+        marginBottom: Spacing.md,
+        fontSize: Typography.size.sm,
     },
     statusCard: {
-        padding: 20,
-        borderRadius: 15,
-        marginBottom: 20,
+        padding: Spacing.xl,
         alignItems: 'center',
-        elevation: 4,
+        marginBottom: Spacing.xl,
     },
     statusIcon: {
-        fontSize: 40,
-        marginBottom: 10,
+        fontSize: 32,
+        marginBottom: Spacing.xs,
     },
-    statusText: {
+    statusTitle: {
         color: 'white',
-        fontSize: 20,
-        fontWeight: 'bold',
+        fontSize: Typography.size.lg,
+        fontWeight: Typography.weight.bold,
     },
-    statusSubtext: {
+    statusDetail: {
         color: 'white',
-        fontSize: 14,
-        marginTop: 5,
-        textAlign: 'center',
-    },
-    entryExitContainer: {
-        marginBottom: 20,
+        opacity: 0.8,
+        fontSize: Typography.size.xs,
+        marginTop: 4,
     },
     sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 12,
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
+        marginBottom: Spacing.md,
     },
     buttonRow: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        gap: 10,
+        gap: Spacing.md,
+        marginBottom: Spacing.xl,
     },
-    entryBtn: {
+    actionBtn: {
         flex: 1,
-        backgroundColor: '#4CAF50',
-        padding: 16,
-        borderRadius: 12,
+        padding: Spacing.lg,
+        borderRadius: BorderRadius.xl,
         alignItems: 'center',
-        elevation: 3,
-    },
-    exitBtn: {
-        flex: 1,
-        backgroundColor: '#FF5252',
-        padding: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        elevation: 3,
+        ...Shadows.md,
     },
     btnIcon: {
         fontSize: 24,
-        marginBottom: 5,
+        marginBottom: 4,
     },
-    attendanceSection: {
-        marginTop: 10,
-        marginBottom: 20,
-    },
-    attendanceBtn: {
-        backgroundColor: '#007AFF',
-        padding: 18,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginBottom: 15,
-        elevation: 3,
-    },
-    btnDisabled: {
-        opacity: 0.6,
-    },
-    btnText: {
+    btnLabel: {
         color: 'white',
-        fontSize: 16,
-        fontWeight: 'bold',
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.bold,
     },
-    infoBox: {
-        padding: 15,
-        borderRadius: 10,
+    logsCard: {
+        padding: Spacing.lg,
     },
-    infoBoxTitle: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        marginBottom: 8,
+    cardHeader: {
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.bold,
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: Spacing.md,
     },
-    infoBoxText: {
-        fontSize: 13,
-        marginVertical: 2,
-    },
-    logItem: {
+    logRow: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        paddingVertical: 8,
+        justifyContent: 'space-between',
+        paddingVertical: Spacing.md,
         borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        borderBottomColor: 'rgba(0,0,0,0.05)',
     },
-    logBadge: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 8,
+    typeBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
     },
-    logBadgeText: {
+    typeText: {
         color: 'white',
-        fontSize: 13,
-        fontWeight: 'bold',
+        fontSize: 10,
+        fontWeight: Typography.weight.bold,
     },
     logTime: {
-        fontSize: 13,
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.medium,
     },
-    error: {
-        color: 'red',
-        fontSize: 16,
-        textAlign: 'center',
-        marginTop: 20,
+    mainBtn: {
+        padding: Spacing.lg,
+        borderRadius: BorderRadius.xl,
+        alignItems: 'center',
+        ...Shadows.lg,
+    },
+    mainBtnText: {
+        color: 'white',
+        fontSize: Typography.size.md,
+        fontWeight: Typography.weight.bold,
+    },
+    btnDisabled: {
+        opacity: 0.5,
     },
     devBtn: {
-        backgroundColor: '#607D8B',
-        padding: 12,
-        borderRadius: 8,
         alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#455A64',
-        borderStyle: 'dashed'
+        padding: Spacing.md,
+        marginTop: Spacing.md,
     },
     devBtnText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 14
-    }
+        fontSize: Typography.size.xs,
+        fontWeight: Typography.weight.medium,
+        textDecorationLine: 'underline',
+    },
+    infoCard: {
+        marginTop: Spacing.xl,
+        padding: Spacing.lg,
+        borderRadius: BorderRadius.lg,
+    },
+    infoTitle: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.bold,
+        marginBottom: 8,
+    },
+    infoText: {
+        fontSize: Typography.size.xs,
+        marginBottom: 4,
+        lineHeight: 18,
+    },
 });
+
