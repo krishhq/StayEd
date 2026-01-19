@@ -32,37 +32,94 @@ export default function MessMenuScreen() {
 
     const currentMenu = MOCK_MENU[selectedDay as keyof typeof MOCK_MENU];
 
+    const getMealTime = (mealType: string) => {
+        switch (mealType) {
+            case 'Breakfast': return { hours: 8, minutes: 0 };
+            case 'Lunch': return { hours: 12, minutes: 30 };
+            case 'Snacks': return { hours: 17, minutes: 0 };
+            case 'Dinner': return { hours: 20, minutes: 0 };
+            default: return { hours: 0, minutes: 0 };
+        }
+    };
+
+    const getMealDateTime = (dayName: string, mealType: string): Date => {
+        const now = new Date();
+        const currentDayIndex = now.getDay() || 7; // So Sunday is 7
+        const targetDayIndex = DAYS.indexOf(dayName) + 1; // Mon=1 ... Sun=7
+
+        const targetDate = new Date(now);
+        // Calculate difference in days. 
+        // We assume the menu represents the current week (Mon-Sun).
+        // If today is Wed (3) and target is Mon (1), diff is -2 (Past).
+        // If today is Wed (3) and target is Fri (5), diff is +2 (Future).
+        const diffDays = targetDayIndex - currentDayIndex;
+        targetDate.setDate(now.getDate() + diffDays);
+
+        const { hours, minutes } = getMealTime(mealType);
+        targetDate.setHours(hours, minutes, 0, 0);
+
+        return targetDate;
+    };
+
     const handleSkip = async (mealType: string) => {
         if (!user || !hostelId) return;
 
+        const targetDate = getMealDateTime(selectedDay, mealType);
+        const now = new Date();
+        const diffMs = targetDate.getTime() - now.getTime();
+        const diffHours = diffMs / (1000 * 60 * 60);
+
+        if (diffHours < 5) {
+            Alert.alert(
+                'Cannot Skip',
+                diffHours < 0
+                    ? 'This meal time has strictly passed.'
+                    : `You can only skip meals at least 5 hours in advance. It's too close to meal time.`
+            );
+            return;
+        }
+
         Alert.alert(
             'Confirm Skip',
-            `Are you sure you want to skip ${mealType}? This helps us reduce food waste.`,
+            `Are you sure you want to skip ${mealType} on ${selectedDay}? This helps us reduce food waste.`,
             [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Yes, Skip', style: 'destructive', onPress: () => processSkip(mealType) }
+                { text: 'Yes, Skip', style: 'destructive', onPress: () => processSkip(mealType, targetDate) }
             ]
         );
     };
 
-    const processSkip = async (mealType: string) => {
+    const processSkip = async (mealType: string, targetDate: Date) => {
         if (!user || !hostelId) return;
 
         setLoading(true);
-        const mealId = `${selectedDay}-${mealType}`;
-        const today = new Date().toISOString().split('T')[0];
+        // Clean ID format: YYYY-MM-DD-MealType
+        const dateStr = targetDate.toISOString().split('T')[0];
+        const mealId = `${dateStr}-${mealType}`;
 
         try {
+            // Check if already skipped
+            const q = query(collection(db, 'meal_skips'),
+                where('userId', '==', user.uid),
+                where('mealId', '==', mealId)
+            );
+            const snaps = await getDocs(q);
+            if (!snaps.empty) {
+                Alert.alert('Info', 'You have already skipped this meal.');
+                setLoading(false);
+                return;
+            }
+
             await addDoc(collection(db, 'meal_skips'), {
                 userId: user.uid,
                 hostelId: hostelId,
                 mealId,
-                date: today,
+                date: dateStr,
+                mealType,
                 timestamp: serverTimestamp()
             });
 
             Alert.alert('Logged', `You've marked ${mealType} as skipped for ${selectedDay}.`);
-            // Rest of the high skip rate alert logic remains same...
         } catch (error: any) {
             Alert.alert('Error', error.message);
         } finally {

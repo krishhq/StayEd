@@ -20,6 +20,7 @@ export default function AdminDashboard() {
     const [complaintCount, setComplaintCount] = useState<number | string>('-');
     const [alerts, setAlerts] = useState<any[]>([]);
     const [missedAttendance, setMissedAttendance] = useState<{ count: number, slotName: string, rawSlot: string } | null>(null);
+    const [highSkipAlert, setHighSkipAlert] = useState<{ count: number, meal: string, percentage: string } | null>(null);
     const [loading, setLoading] = useState(true);
 
     useFocusEffect(
@@ -28,18 +29,23 @@ export default function AdminDashboard() {
                 if (!hostelId) return;
                 setLoading(true);
                 try {
+                    // 1. Fetch Resident Count
+                    let currentResCount = 0;
                     try {
                         const qRes = query(collection(db, 'residents'), where("hostelId", "==", hostelId));
                         const resSnap = await getCountFromServer(qRes);
-                        setResidentCount(resSnap.data().count);
+                        currentResCount = resSnap.data().count;
+                        setResidentCount(currentResCount);
                     } catch (err) { setResidentCount('!'); }
 
+                    // 2. Fetch Complaints
                     try {
                         const qComp = query(collection(db, 'complaints'), where("hostelId", "==", hostelId));
                         const compSnap = await getCountFromServer(qComp);
                         setComplaintCount(compSnap.data().count);
                     } catch (err) { setComplaintCount('!'); }
 
+                    // 3. Fetch General Alerts
                     try {
                         const alertQ = query(collection(db, 'mess_alerts'), where('hostelId', '==', hostelId), orderBy('createdAt', 'desc'), limit(3));
                         const alertSnap = await getDocs(alertQ);
@@ -48,16 +54,55 @@ export default function AdminDashboard() {
                         setAlerts(fetchedAlerts);
                     } catch (err) { setAlerts([]); }
 
+                    // 4. Check Mess Skip Rate (NEW)
+                    if (currentResCount > 0) {
+                        try {
+                            const now = new Date();
+                            const currentHour = now.getHours() + (now.getMinutes() / 60);
+                            let targetMeal = '';
+                            let dateStr = now.toISOString().split('T')[0];
+
+                            // Logic to determine immediate next meal
+                            if (currentHour < 8) targetMeal = 'Breakfast';
+                            else if (currentHour < 12.5) targetMeal = 'Lunch';
+                            else if (currentHour < 17) targetMeal = 'Snacks';
+                            else if (currentHour < 20) targetMeal = 'Dinner';
+                            else {
+                                targetMeal = 'Breakfast';
+                                const tmr = new Date(now);
+                                tmr.setDate(tmr.getDate() + 1);
+                                dateStr = tmr.toISOString().split('T')[0];
+                            }
+
+                            const mealId = `${dateStr}-${targetMeal}`;
+                            const skipQ = query(collection(db, 'meal_skips'), where('hostelId', '==', hostelId), where('mealId', '==', mealId));
+                            const skipSnap = await getCountFromServer(skipQ);
+                            const skipCount = skipSnap.data().count;
+
+                            if (skipCount > (currentResCount * 0.10)) {
+                                setHighSkipAlert({
+                                    count: skipCount,
+                                    meal: `${targetMeal} (${dateStr === now.toISOString().split('T')[0] ? 'Today' : 'Tomorrow'})`,
+                                    percentage: ((skipCount / currentResCount) * 100).toFixed(1)
+                                });
+                            } else {
+                                setHighSkipAlert(null);
+                            }
+                        } catch (err) { console.error("Skip check error", err); }
+                    }
+
+                    // 5. Check Attendance (EXISTING)
                     try {
                         const now = new Date();
                         const currentHour = now.getHours() + now.getMinutes() / 60;
                         let targetSlot: 'MORNING' | 'EVENING' | null = null;
                         let slotLabel = '';
+                        // ... logic ...
                         if (currentHour > ATTENDANCE_SLOTS.EVENING.end) {
                             targetSlot = 'EVENING';
                             slotLabel = 'Evening Slot';
                         }
-                        if (targetSlot && typeof residentCount === 'number') {
+                        if (targetSlot && typeof currentResCount === 'number') {
                             const startTime = new Date();
                             startTime.setHours(Math.floor(ATTENDANCE_SLOTS[targetSlot].start), (ATTENDANCE_SLOTS[targetSlot].start % 1) * 60, 0, 0);
                             const endTime = new Date();
@@ -65,13 +110,13 @@ export default function AdminDashboard() {
                             const attQ = query(collection(db, 'attendance'), where('hostelId', '==', hostelId), where('timestamp', '>=', Timestamp.fromDate(startTime)), where('timestamp', '<=', Timestamp.fromDate(endTime)));
                             const attSnap = await getDocs(attQ);
                             const uniqueResidents = new Set(attSnap.docs.map(doc => doc.data().residentId));
-                            setMissedAttendance({ count: Math.max(0, residentCount - uniqueResidents.size), slotName: slotLabel, rawSlot: targetSlot });
+                            setMissedAttendance({ count: Math.max(0, currentResCount - uniqueResidents.size), slotName: slotLabel, rawSlot: targetSlot });
                         } else { setMissedAttendance(null); }
                     } catch (err) { setMissedAttendance(null); }
                 } finally { setLoading(false); }
             };
             fetchStats();
-        }, [hostelId, residentCount])
+        }, [hostelId]) // removed residentCount dependency loop
     );
 
     if (loading) return <LoadingScreen message="Updating dashboard..." />;
@@ -95,9 +140,38 @@ export default function AdminDashboard() {
                     </Card>
                 </View>
 
-                {(alerts.length > 0 || missedAttendance) && (
+                {(alerts.length > 0 || missedAttendance || highSkipAlert) && (
                     <View style={styles.section}>
                         <Text style={[styles.sectionTitle, { color: colors.text }]}>Urgent Attention</Text>
+
+                        {/* High Skip Rate Alert */}
+                        {highSkipAlert && (
+                            <Card
+                                variant="elevated"
+                                style={[styles.alertCard, { backgroundColor: '#FEF2F2', borderColor: '#F43F5E' }]}
+                            >
+                                <View style={styles.alertHeader}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, flex: 1 }}>
+                                        <View style={[styles.alertIconBg, { backgroundColor: '#F43F5E' }]}>
+                                            <Text style={styles.alertIcon}>🍽️</Text>
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[styles.alertTitle, { color: '#9F1239' }]}>High Meal Skip Rate</Text>
+                                            <Text style={[styles.alertSub, { color: '#BE123C' }]}>{highSkipAlert.meal}</Text>
+                                        </View>
+                                    </View>
+                                    <TouchableOpacity
+                                        onPress={() => setHighSkipAlert(null)}
+                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                    >
+                                        <Text style={{ fontSize: 18, color: '#9F1239', fontWeight: 'bold' }}>✕</Text>
+                                    </TouchableOpacity>
+                                </View>
+                                <Text style={[styles.alertMessage, { color: '#881337' }]}>
+                                    <Text style={{ fontWeight: 'bold' }}>{highSkipAlert.count} residents</Text> ({highSkipAlert.percentage}%) have skipped this meal. Please verify food quantities.
+                                </Text>
+                            </Card>
+                        )}
 
                         {missedAttendance && missedAttendance.count > 0 && (
                             <Card
