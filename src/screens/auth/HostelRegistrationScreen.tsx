@@ -2,8 +2,8 @@ import React, { useState, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator, Modal } from 'react-native';
 import * as Location from 'expo-location';
 import { registerHostel, registerUser } from '../../services/firestoreService';
-import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
-import app, { auth } from '../../config/firebaseConfig';
+import FirebaseRecaptchaVerifierModal from '../../components/FirebaseRecaptcha/FirebaseRecaptchaVerifierModal';
+import app, { auth, firebaseConfig } from '../../config/firebaseConfig';
 import { PhoneAuthProvider, signInWithCredential, signInAnonymously } from 'firebase/auth';
 
 import { useAuth } from '../../context/AuthContext';
@@ -294,7 +294,7 @@ export default function HostelRegistrationScreen({ navigation }: any) {
         <ScrollView style={styles.container}>
             <FirebaseRecaptchaVerifierModal
                 ref={recaptchaVerifier}
-                firebaseConfig={app.options}
+                firebaseConfig={firebaseConfig}
             />
 
             <Text style={styles.title}>Register Your Hostel/PG</Text>

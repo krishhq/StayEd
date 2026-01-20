@@ -44,8 +44,12 @@ export default function AttendanceScreen() {
     }, []);
 
     const fetchRecentLogs = async () => {
-        if (!user) return;
+        if (!user) {
+            console.log('[AttendanceScreen] No user, skipping log fetch');
+            return;
+        }
         try {
+            console.log('[AttendanceScreen] Fetching logs for userId:', user.uid);
             const q = query(
                 collection(db, 'entry_exit_logs'),
                 where('userId', '==', user.uid),
@@ -53,13 +57,21 @@ export default function AttendanceScreen() {
                 limit(5)
             );
             const snapshot = await getDocs(q);
-            const logs: EntryExitLog[] = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            } as EntryExitLog));
+            console.log('[AttendanceScreen] Query executed. Docs found:', snapshot.docs.length);
+
+            const logs: EntryExitLog[] = snapshot.docs.map(doc => {
+                const data = doc.data();
+                console.log('[AttendanceScreen] Log entry:', { id: doc.id, type: data.type, timestamp: data.timestamp });
+                return {
+                    id: doc.id,
+                    ...data
+                } as EntryExitLog;
+            });
+
+            console.log('[AttendanceScreen] Setting recentLogs with', logs.length, 'entries');
             setRecentLogs(logs);
         } catch (error) {
-            console.log('Error fetching logs:', error);
+            console.error('[AttendanceScreen] Error fetching logs:', error);
             setRecentLogs([]);
         }
     };
@@ -379,7 +391,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         paddingVertical: Spacing.md,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(0,0,0,0.05)',
+        borderBottomColor: 'rgba(255,255,255,0.1)',
     },
     typeBadge: {
         paddingHorizontal: 8,

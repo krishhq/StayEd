@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Image } from 'react-native';
-import { FirebaseRecaptchaVerifierModal, FirebaseRecaptchaBanner } from 'expo-firebase-recaptcha';
-import app, { auth } from '../../config/firebaseConfig'; // Import auth directly
+import FirebaseRecaptchaVerifierModal from '../../components/FirebaseRecaptcha/FirebaseRecaptchaVerifierModal';
+import FirebaseRecaptchaBanner from '../../components/FirebaseRecaptcha/FirebaseRecaptchaBanner';
+import app, { auth, firebaseConfig } from '../../config/firebaseConfig'; // Import auth directly
 import { PhoneAuthProvider, signInWithCredential, signInAnonymously } from 'firebase/auth'; // Removed getAuth
 import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
@@ -108,11 +109,11 @@ export default function LoginScreen({ navigation }: any) {
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             <FirebaseRecaptchaVerifierModal
                 ref={recaptchaVerifier}
-                firebaseConfig={app.options}
+                firebaseConfig={firebaseConfig}
             />
 
             <View style={styles.header}>
-                <Image source={require('../../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
+                <Image source={require('../../../assets/logo.png')} style={styles.logo} resizeMode="contain" />
                 <Text style={[styles.title, { color: colors.text }]}>StayEd</Text>
                 <Text style={[styles.subtitle, { color: colors.subText }]}>Smart Living, Secure Staying</Text>
             </View>

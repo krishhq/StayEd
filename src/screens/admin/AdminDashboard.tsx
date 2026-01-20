@@ -135,7 +135,7 @@ export default function AdminDashboard() {
                         <Text style={[styles.statLabel, { color: colors.subText }]}>REG. RESIDENTS</Text>
                     </Card>
                     <Card style={styles.statCard}>
-                        <Text style={[styles.statValue, { color: '#F43F5E' }]}>{complaintCount}</Text>
+                        <Text style={[styles.statValue, { color: colors.error }]}>{complaintCount}</Text>
                         <Text style={[styles.statLabel, { color: colors.subText }]}>OPEN TICKETS</Text>
                     </Card>
                 </View>
@@ -148,26 +148,26 @@ export default function AdminDashboard() {
                         {highSkipAlert && (
                             <Card
                                 variant="elevated"
-                                style={[styles.alertCard, { backgroundColor: '#FEF2F2', borderColor: '#F43F5E' }]}
+                                style={[styles.alertCard, { backgroundColor: '#450A0A', borderColor: colors.error }]}
                             >
                                 <View style={styles.alertHeader}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.md, flex: 1 }}>
-                                        <View style={[styles.alertIconBg, { backgroundColor: '#F43F5E' }]}>
+                                        <View style={[styles.alertIconBg, { backgroundColor: colors.error }]}>
                                             <Text style={styles.alertIcon}>🍽️</Text>
                                         </View>
                                         <View style={{ flex: 1 }}>
-                                            <Text style={[styles.alertTitle, { color: '#9F1239' }]}>High Meal Skip Rate</Text>
-                                            <Text style={[styles.alertSub, { color: '#BE123C' }]}>{highSkipAlert.meal}</Text>
+                                            <Text style={[styles.alertTitle, { color: colors.error }]}>High Meal Skip Rate</Text>
+                                            <Text style={[styles.alertSub, { color: colors.error }]}>{highSkipAlert.meal}</Text>
                                         </View>
                                     </View>
                                     <TouchableOpacity
                                         onPress={() => setHighSkipAlert(null)}
                                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                     >
-                                        <Text style={{ fontSize: 18, color: '#9F1239', fontWeight: 'bold' }}>✕</Text>
+                                        <Text style={{ fontSize: 18, color: colors.error, fontWeight: 'bold' }}>✕</Text>
                                     </TouchableOpacity>
                                 </View>
-                                <Text style={[styles.alertMessage, { color: '#881337' }]}>
+                                <Text style={[styles.alertMessage, { color: colors.error }]}>
                                     <Text style={{ fontWeight: 'bold' }}>{highSkipAlert.count} residents</Text> ({highSkipAlert.percentage}%) have skipped this meal. Please verify food quantities.
                                 </Text>
                             </Card>
@@ -176,19 +176,19 @@ export default function AdminDashboard() {
                         {missedAttendance && missedAttendance.count > 0 && (
                             <Card
                                 variant="elevated"
-                                style={[styles.alertCard, { backgroundColor: '#FFFBEB', borderColor: '#F59E0B' }]}
+                                style={[styles.alertCard, { backgroundColor: '#451A03', borderColor: colors.warning }]}
                                 onPress={() => navigation.navigate('AbsentResidents', { slotName: missedAttendance.slotName, targetSlot: missedAttendance.rawSlot })}
                             >
                                 <View style={styles.alertHeader}>
-                                    <View style={[styles.alertIconBg, { backgroundColor: '#F59E0B' }]}>
+                                    <View style={[styles.alertIconBg, { backgroundColor: colors.warning }]}>
                                         <Text style={styles.alertIcon}>⚠️</Text>
                                     </View>
                                     <View>
-                                        <Text style={[styles.alertTitle, { color: '#92400E' }]}>Attendance Gap Detected</Text>
-                                        <Text style={[styles.alertSub, { color: '#B45309' }]}>{missedAttendance.slotName}</Text>
+                                        <Text style={[styles.alertTitle, { color: colors.warning }]}>Attendance Gap Detected</Text>
+                                        <Text style={[styles.alertSub, { color: colors.warning }]}>{missedAttendance.slotName}</Text>
                                     </View>
                                 </View>
-                                <Text style={[styles.alertMessage, { color: '#92400E' }]}>
+                                <Text style={[styles.alertMessage, { color: colors.warning }]}>
                                     <Text style={{ fontWeight: 'bold' }}>{missedAttendance.count}</Text> residents have not marked their attendance for this slot.
                                 </Text>
                             </Card>
@@ -197,7 +197,7 @@ export default function AdminDashboard() {
                         {alerts.map(alert => (
                             <Card key={alert.id} style={styles.msgCard} variant="outlined">
                                 <View style={styles.msgHeader}>
-                                    <Text style={[styles.msgTitle, { color: '#F43F5E' }]}>🚨 Mess Alert: {alert.title}</Text>
+                                    <Text style={[styles.msgTitle, { color: colors.error }]}>🚨 Mess Alert: {alert.title}</Text>
                                     <View style={[styles.dot, { backgroundColor: '#F43F5E' }]} />
                                 </View>
                                 <Text style={[styles.msgBody, { color: colors.text }]}>{alert.message}</Text>
@@ -211,10 +211,10 @@ export default function AdminDashboard() {
                     <View style={styles.toolsGrid}>
                         {[
                             { title: 'New Resident', icon: '👤', screen: 'RegisterResident', color: colors.primary },
-                            { title: 'Triage Panel', icon: '🛠️', screen: 'AllComplaints', color: '#F59E0B' },
-                            { title: 'Security Logs', icon: '🛡️', screen: 'AttendanceLog', color: '#10B981' },
-                            { title: 'Leave Desk', icon: '📅', screen: 'AdminLeaves', color: '#6366F1' },
-                            { title: 'Broadcast', icon: '📣', screen: 'AdminBroadcast', color: '#D946EF' },
+                            { title: 'Triage Panel', icon: '🛠️', screen: 'AllComplaints', color: colors.warning },
+                            { title: 'Security Logs', icon: '🛡️', screen: 'AttendanceLog', color: colors.success },
+                            { title: 'Leave Desk', icon: '📅', screen: 'AdminLeaves', color: colors.secondary },
+                            { title: 'Broadcast', icon: '📣', screen: 'AdminBroadcast', color: colors.info },
                         ].map((tool, i) => (
                             <TouchableOpacity
                                 key={i}
@@ -374,5 +374,3 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
     },
 });
-
-

@@ -12,7 +12,7 @@ export default function LoadingScreen({ message = 'Loading...' }: LoadingScreenP
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             <Image
-                source={require('../../assets/logo.jpg')}
+                source={require('../../assets/logo.png')}
                 style={styles.logo}
                 resizeMode="contain"
             />

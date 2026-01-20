@@ -14,7 +14,7 @@ interface ScreenHeaderProps {
 
 export default function ScreenHeader({ title, showLogo = true, onProfilePress, onBackPress, rightElement }: ScreenHeaderProps) {
 
-    const { colors, theme, toggleTheme } = useTheme();
+    const { colors } = useTheme();
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background, borderColor: colors.border }]}>
@@ -27,7 +27,7 @@ export default function ScreenHeader({ title, showLogo = true, onProfilePress, o
                     )}
                     {showLogo && !onBackPress && (
                         <Image
-                            source={require('../../assets/logo.jpg')}
+                            source={require('../../assets/logo.png')}
                             style={styles.logo}
                             resizeMode="contain"
                         />
@@ -37,12 +37,8 @@ export default function ScreenHeader({ title, showLogo = true, onProfilePress, o
                     </Text>
                 </View>
 
-
                 <View style={styles.rightSection}>
                     {rightElement}
-                    <TouchableOpacity onPress={toggleTheme} style={styles.iconBtn}>
-                        <Text style={styles.icon}>{theme === 'light' ? '🌙' : '☀️'}</Text>
-                    </TouchableOpacity>
                     {onProfilePress && (
                         <TouchableOpacity onPress={onProfilePress} style={[styles.iconBtn, { backgroundColor: colors.primary + '20' }]}>
                             <Text style={[styles.icon, { color: colors.primary }]}>👤</Text>

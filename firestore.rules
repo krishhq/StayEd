@@ -86,7 +86,7 @@ service cloud.firestore {
       allow create: if isAuthenticated() && getUserData().role == 'resident';
       allow read: if isAuthenticated() && (
         (getUserData().role == 'admin' && getUserData().hostelId == resource.data.hostelId) ||
-        (getUserData().role == 'resident' && getUserData().residentId == resource.data.residentId) ||
+        (getUserData().role == 'resident' && request.auth.uid == resource.data.userId) ||
         (getUserData().role == 'guardian' && getUserData().linkedResidentId == resource.data.residentId)
       );
     }

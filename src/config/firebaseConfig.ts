@@ -6,7 +6,7 @@ import { getFirestore } from 'firebase/firestore'; // NoSQL Database for Users, 
 import { getDatabase } from 'firebase/database'; // Realtime Database for Chat/Logs
 
 // Updated with User provided credentials
-const firebaseConfig = {
+export const firebaseConfig = {
     apiKey: "AIzaSyD798LOVbouHr4PphKgNzGvr4XvqCXZtpo",
     authDomain: "stayed-2b94c.firebaseapp.com",
     databaseURL: "https://stayed-2b94c-default-rtdb.asia-southeast1.firebasedatabase.app",

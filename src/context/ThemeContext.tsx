@@ -1,7 +1,5 @@
-import React, { createContext, useContext, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import React, { createContext, useContext } from 'react';
 import { Colors } from '../constants/DesignSystem';
-
 
 type Theme = 'light' | 'dark';
 
@@ -22,7 +20,6 @@ interface ThemeColors {
 export const lightColors: ThemeColors = Colors.light;
 export const darkColors: ThemeColors = Colors.dark;
 
-
 interface ThemeContextType {
     theme: Theme;
     colors: ThemeColors;
@@ -32,11 +29,10 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-    const systemScheme = useColorScheme();
-    const [theme, setTheme] = useState<Theme>(systemScheme === 'dark' ? 'dark' : 'light');
+    const [theme, setTheme] = React.useState<Theme>('light'); // Changed to state to allow toggling
 
     const toggleTheme = () => {
-        setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
+        setTheme(prev => prev === 'light' ? 'dark' : 'light');
     };
 
     const colors = theme === 'light' ? lightColors : darkColors;
